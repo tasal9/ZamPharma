@@ -40,7 +40,13 @@ import {
   ScanLine,
   CheckCircle,
   AlertCircle,
+  Wifi,
+  WifiOff,
+  Cloud,
+  CloudOff,
+  Zap,
 } from "lucide-react";
+import { useKV } from '@github/spark/hooks';
 
 // shadcn/ui components
 import { Button } from "@/components/ui/button";
@@ -168,6 +174,62 @@ function DataTable({ columns, data, onEdit, onDelete, onView, pageSize = 8 }) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// Network status hook
+function useNetworkStatus() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [lastOnline, setLastOnline] = useState(Date.now());
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setLastOnline(Date.now());
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  return { isOnline, lastOnline };
+}
+
+// Offline sync status component
+function SyncStatus({ isOnline, pendingSync, lastSync, isAutomaticSyncing }) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'} ${!isOnline && pendingSync > 0 ? 'animate-pulse' : ''}`} />
+      <div className="flex items-center gap-1">
+        {isOnline ? (
+          <Cloud className="h-3 w-3 text-green-600" />
+        ) : (
+          <CloudOff className="h-3 w-3 text-red-600" />
+        )}
+        <span className={isOnline ? 'text-green-700' : 'text-red-700'}>
+          {isOnline ? 'Online' : 'Offline'}
+        </span>
+        {isAutomaticSyncing && (
+          <Zap className="h-3 w-3 text-blue-500 animate-pulse" />
+        )}
+      </div>
+      {pendingSync > 0 && (
+        <Badge variant="outline" className="text-xs">
+          {pendingSync} pending
+        </Badge>
+      )}
+      {lastSync && (
+        <span className="text-muted-foreground">
+          Synced: {new Date(lastSync).toLocaleTimeString()}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -865,20 +927,115 @@ function Inventory() {
   const [auditSession, setAuditSession] = useState(null);
   const [scannedItems, setScannedItems] = useState([]);
   const [auditProgress, setAuditProgress] = useState({ scanned: 0, total: demoProducts.length });
+  const [isAutomaticSyncing, setIsAutomaticSyncing] = useState(false);
+
+  // Persistent storage for offline audit data
+  const [offlineAudits, setOfflineAudits] = useKV("offline-audits", []);
+  const [pendingSyncCount, setPendingSyncCount] = useKV("pending-sync-count", 0);
+  const [lastSyncTime, setLastSyncTime] = useKV("last-sync-time", null);
+  const [currentAuditId, setCurrentAuditId] = useKV("current-audit-session", null);
+  const [auditSessionData, setAuditSessionData] = useKV("audit-session-data", null);
+
+  // Network status
+  const { isOnline, lastOnline } = useNetworkStatus();
+
+  // Auto-sync when coming back online
+  useEffect(() => {
+    if (isOnline && pendingSyncCount > 0) {
+      setIsAutomaticSyncing(true);
+      syncOfflineData();
+    }
+  }, [isOnline, pendingSyncCount]);
+
+  // Load audit session from storage if exists
+  useEffect(() => {
+    if (currentAuditId && auditSessionData) {
+      setAuditSession(auditSessionData);
+      setScannedItems(auditSessionData.scannedProducts || []);
+      setBulkScanMode(true);
+      setAuditProgress({ 
+        scanned: auditSessionData.scannedProducts?.length || 0, 
+        total: demoProducts.length 
+      });
+    }
+  }, [currentAuditId, auditSessionData]);
+
+  // Sync offline audit data to server
+  const syncOfflineData = async () => {
+    try {
+      if (offlineAudits.length === 0) {
+        setIsAutomaticSyncing(false);
+        return;
+      }
+
+      // Simulate API sync
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // In real implementation, upload audits to server
+      console.log('Syncing audits:', offlineAudits);
+      
+      // Clear offline data after successful sync
+      setOfflineAudits([]);
+      setPendingSyncCount(0);
+      setLastSyncTime(Date.now());
+      setIsAutomaticSyncing(false);
+      
+      setScanFeedback({
+        type: 'success',
+        message: `Synced ${offlineAudits.length} audit sessions to server`,
+        autoSync: true
+      });
+      
+      setTimeout(() => setScanFeedback(null), 3000);
+    } catch (error) {
+      setIsAutomaticSyncing(false);
+      setScanFeedback({
+        type: 'error',
+        message: 'Sync failed - will retry when online',
+        autoSync: true
+      });
+      setTimeout(() => setScanFeedback(null), 5000);
+    }
+  };
+
+  // Manual sync trigger
+  const manualSync = () => {
+    if (!isOnline) {
+      setScanFeedback({
+        type: 'error',
+        message: 'Cannot sync while offline',
+        autoSync: false
+      });
+      setTimeout(() => setScanFeedback(null), 3000);
+      return;
+    }
+    
+    setIsAutomaticSyncing(true);
+    syncOfflineData();
+  };
 
   // Start new audit session
   const startAuditSession = () => {
     const sessionId = `AUDIT-${Date.now()}`;
-    setAuditSession({
+    const newSession = {
       id: sessionId,
       startTime: new Date().toISOString(),
       scannedProducts: [],
       missedProducts: [],
-      discrepancies: []
-    });
+      discrepancies: [],
+      deviceId: 'DEVICE-001', // In real app, get from device
+      operatorId: 'admin',
+      isOffline: !isOnline
+    };
+    
+    setAuditSession(newSession);
     setScannedItems([]);
     setBulkScanMode(true);
     setAuditProgress({ scanned: 0, total: demoProducts.length });
+    
+    // Persist session for offline recovery
+    setCurrentAuditId(sessionId);
+    setAuditSessionData(newSession);
   };
 
   // End audit session
@@ -888,12 +1045,32 @@ function Inventory() {
         !scannedItems.some(s => s.id === p.id)
       );
       
-      setAuditSession(prev => ({
-        ...prev,
+      const completedSession = {
+        ...auditSession,
         endTime: new Date().toISOString(),
+        scannedProducts: scannedItems,
         missedProducts,
-        completion: ((scannedItems.length / demoProducts.length) * 100).toFixed(1)
-      }));
+        completion: ((scannedItems.length / demoProducts.length) * 100).toFixed(1),
+        finalCounts: scannedItems.filter(item => item.actualCount !== null).length,
+        discrepancies: scannedItems.filter(item => item.discrepancy !== null && item.discrepancy !== 0),
+        syncStatus: isOnline ? 'synced' : 'pending'
+      };
+      
+      setAuditSession(completedSession);
+      
+      // Save offline audit
+      if (!isOnline) {
+        setOfflineAudits(currentAudits => [...currentAudits, completedSession]);
+        setPendingSyncCount(count => count + 1);
+      } else {
+        // In real app, immediately sync to server
+        console.log('Immediate sync:', completedSession);
+        setLastSyncTime(Date.now());
+      }
+      
+      // Clear session storage
+      setCurrentAuditId(null);
+      setAuditSessionData(null);
     }
     setBulkScanMode(false);
   };
@@ -919,35 +1096,50 @@ function Inventory() {
           });
           
           // Update scan count
-          setScannedItems(prev => prev.map(item => 
+          const updatedItems = scannedItems.map(item => 
             item.id === product.id 
               ? { ...item, scannedCount: item.scannedCount + 1, lastScanned: new Date().toISOString() }
               : item
-          ));
+          );
+          setScannedItems(updatedItems);
+          
+          // Update persistent session
+          setAuditSessionData(prev => ({
+            ...prev,
+            scannedProducts: updatedItems
+          }));
         } else {
           setScanFeedback({ 
             type: 'success', 
-            message: `Added to audit: ${product.name}`, 
+            message: `Added to audit: ${product.name}${!isOnline ? ' (offline)' : ''}`, 
             product,
             sessionProgress: `${scannedItems.length + 1}/${demoProducts.length}`
           });
           
           // Add to scanned items
-          setScannedItems(prev => [...prev, {
+          const newItem = {
             ...product,
             scannedCount: 1,
             actualCount: null,
             discrepancy: null,
             firstScanned: new Date().toISOString(),
             lastScanned: new Date().toISOString()
-          }]);
+          };
           
+          const updatedItems = [...scannedItems, newItem];
+          setScannedItems(updatedItems);
           setAuditProgress(prev => ({ ...prev, scanned: prev.scanned + 1 }));
+          
+          // Update persistent session
+          setAuditSessionData(prev => ({
+            ...prev,
+            scannedProducts: updatedItems
+          }));
         }
       } else {
         setScanFeedback({ 
           type: 'success', 
-          message: `Stock check: ${product.name}`, 
+          message: `Stock check: ${product.name}${!isOnline ? ' (offline)' : ''}`, 
           product,
           action: quickStockMode ? 'Quick count mode active' : 'View details'
         });
@@ -967,7 +1159,7 @@ function Inventory() {
 
   // Update actual count for scanned item
   const updateActualCount = (productId, count) => {
-    setScannedItems(prev => prev.map(item => {
+    const updatedItems = scannedItems.map(item => {
       if (item.id === productId) {
         const actualCount = parseInt(count) || 0;
         const discrepancy = actualCount - item.stock;
@@ -978,6 +1170,14 @@ function Inventory() {
         };
       }
       return item;
+    });
+    
+    setScannedItems(updatedItems);
+    
+    // Update persistent session
+    setAuditSessionData(prev => ({
+      ...prev,
+      scannedProducts: updatedItems
     }));
   };
 
@@ -997,10 +1197,26 @@ function Inventory() {
                 <Check className="h-4 w-4 mr-2"/>Complete Audit
               </Button>
             )}
+            {pendingSyncCount > 0 && (
+              <Button 
+                variant="outline" 
+                onClick={manualSync}
+                disabled={!isOnline || isAutomaticSyncing}
+              >
+                <RefreshCcw className={`h-4 w-4 mr-2 ${isAutomaticSyncing ? 'animate-spin' : ''}`}/>
+                Sync Data
+              </Button>
+            )}
           </div>
         }
         extra={
           <div className="flex items-center gap-3">
+            <SyncStatus 
+              isOnline={isOnline} 
+              pendingSync={pendingSyncCount} 
+              lastSync={lastSyncTime}
+              isAutomaticSyncing={isAutomaticSyncing}
+            />
             <ScannerStatus isScanning={isScanning} mode={bulkScanMode ? 'bulk' : 'normal'} />
             {bulkScanMode && auditSession && (
               <div className="flex items-center gap-2">
@@ -1009,6 +1225,7 @@ function Inventory() {
                 </Badge>
                 <div className="text-xs text-muted-foreground">
                   Session: {auditSession.id}
+                  {!isOnline && <span className="text-orange-600 ml-1">(offline)</span>}
                 </div>
               </div>
             )}
@@ -1089,6 +1306,43 @@ function Inventory() {
         </motion.div>
       )}
 
+      {/* Offline Audits Pending Sync */}
+      {offlineAudits.length > 0 && (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-orange-800">
+              <CloudOff className="h-5 w-5"/>
+              Offline Audits Pending Sync
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {offlineAudits.map((audit) => (
+                <div key={audit.id} className="flex items-center justify-between p-2 bg-white rounded border">
+                  <div>
+                    <div className="font-medium">{audit.id}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {audit.scannedProducts?.length || 0} items • {audit.completion}% complete
+                    </div>
+                  </div>
+                  <Badge variant="outline">
+                    {new Date(audit.endTime).toLocaleDateString()}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+            {isOnline && (
+              <div className="mt-3">
+                <Button onClick={manualSync} disabled={isAutomaticSyncing}>
+                  <Cloud className={`h-4 w-4 mr-2 ${isAutomaticSyncing ? 'animate-pulse' : ''}`}/>
+                  {isAutomaticSyncing ? 'Syncing...' : 'Sync Now'}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Bulk Audit Progress */}
       {bulkScanMode && auditSession && (
         <Card>
@@ -1096,6 +1350,12 @@ function Inventory() {
             <CardTitle className="flex items-center gap-2">
               <ScanLine className="h-5 w-5"/>
               Bulk Audit Session: {auditSession.id}
+              {!isOnline && (
+                <Badge variant="outline" className="text-orange-600 border-orange-300">
+                  <WifiOff className="h-3 w-3 mr-1"/>
+                  Offline Mode
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1132,6 +1392,11 @@ function Inventory() {
               <div className="text-center">
                 <p className="text-sm text-muted-foreground">
                   Scan products quickly or use the scanner gun. 
+                  {!isOnline && (
+                    <span className="block mt-1 text-orange-600 font-medium">
+                      Operating in offline mode - data will sync when online
+                    </span>
+                  )}
                   {scannedItems.length < demoProducts.length && (
                     <span className="block mt-1 font-medium">
                       {demoProducts.length - scannedItems.length} items remaining
@@ -1197,7 +1462,9 @@ function Inventory() {
                       <div className="text-center p-4 bg-green-50 border border-green-200 rounded-lg">
                         <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
                         <div className="font-medium text-green-800">All items scanned!</div>
-                        <div className="text-sm text-green-600">Ready to complete audit</div>
+                        <div className="text-sm text-green-600">
+                          Ready to complete audit {!isOnline && '(will sync when online)'}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1235,6 +1502,12 @@ function Inventory() {
             <CardTitle className="flex items-center gap-2">
               <Check className="h-5 w-5 text-green-600"/>
               Audit Summary: {auditSession.id}
+              {auditSession.syncStatus === 'pending' && (
+                <Badge variant="outline" className="text-orange-600 border-orange-300">
+                  <CloudOff className="h-3 w-3 mr-1"/>
+                  Pending Sync
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1268,6 +1541,12 @@ function Inventory() {
                 <X className="h-4 w-4 mr-2"/>
                 Close Summary
               </Button>
+              {auditSession.syncStatus === 'pending' && isOnline && (
+                <Button variant="outline" onClick={manualSync} disabled={isAutomaticSyncing}>
+                  <Cloud className={`h-4 w-4 mr-2 ${isAutomaticSyncing ? 'animate-pulse' : ''}`}/>
+                  Sync to Server
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1533,6 +1812,8 @@ const RouteView = ({ route }) => {
 
 function App() {
   const [route, setRoute] = useState("dashboard");
+  const { isOnline } = useNetworkStatus();
+  
   return (
     <div className="h-screen w-full bg-background text-foreground">
       <div className="flex h-full">
@@ -1546,6 +1827,25 @@ function App() {
           </AnimatePresence>
         </div>
       </div>
+      
+      {/* Offline indicator overlay */}
+      {!isOnline && (
+        <div className="fixed bottom-4 left-4 right-4 md:left-72 md:right-auto md:max-w-sm z-50">
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-orange-100 border-l-4 border-orange-500 p-3 rounded-lg shadow-lg"
+          >
+            <div className="flex items-center gap-2">
+              <WifiOff className="h-5 w-5 text-orange-600" />
+              <div>
+                <div className="font-medium text-orange-800">Working Offline</div>
+                <div className="text-sm text-orange-700">Data will sync when connection returns</div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
