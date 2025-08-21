@@ -236,12 +236,18 @@ function useBarcodeScanner(onScan, options = {}) {
 }
 
 // Scanner Status Indicator
-function ScannerStatus({ isScanning, lastScan }) {
+function ScannerStatus({ isScanning, lastScan, mode }) {
   return (
     <div className="flex items-center gap-2">
       <div className={`w-2 h-2 rounded-full ${isScanning ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`} />
       <span className="text-xs text-muted-foreground">
-        {isScanning ? 'Scanning...' : lastScan ? `Last: ${lastScan}` : 'Ready'}
+        {isScanning ? (
+          mode === 'bulk' ? 'Bulk scanning...' : 'Scanning...'
+        ) : lastScan ? (
+          `Last: ${lastScan}`
+        ) : (
+          mode === 'bulk' ? 'Bulk ready' : 'Ready'
+        )}
       </span>
     </div>
   );
@@ -588,7 +594,7 @@ function POS() {
         cta={<POSDrawer cart={cart} setCart={setCart} onCheckout={()=>alert("Checked out (demo)")}/>} 
         extra={
           <div className="flex items-center gap-3">
-            <ScannerStatus isScanning={isScanning} />
+            <ScannerStatus isScanning={isScanning} mode="normal" />
             <div className="text-sm text-muted-foreground">Scan barcode or search</div>
           </div>
         } 
@@ -732,7 +738,7 @@ function Products() {
         cta={<Button onClick={()=>setOpen(true)}><Plus className="h-4 w-4 mr-2"/>New Product</Button>} 
         extra={
           <div className="flex items-center gap-3">
-            <ScannerStatus isScanning={isScanning} />
+            <ScannerStatus isScanning={isScanning} mode="normal" />
             <Badge variant="secondary">Catalog: {rows.length}</Badge>
           </div>
         } 
@@ -855,6 +861,42 @@ function Companies() {
 function Inventory() {
   const [scanFeedback, setScanFeedback] = useState(null);
   const [quickStockMode, setQuickStockMode] = useState(false);
+  const [bulkScanMode, setBulkScanMode] = useState(false);
+  const [auditSession, setAuditSession] = useState(null);
+  const [scannedItems, setScannedItems] = useState([]);
+  const [auditProgress, setAuditProgress] = useState({ scanned: 0, total: demoProducts.length });
+
+  // Start new audit session
+  const startAuditSession = () => {
+    const sessionId = `AUDIT-${Date.now()}`;
+    setAuditSession({
+      id: sessionId,
+      startTime: new Date().toISOString(),
+      scannedProducts: [],
+      missedProducts: [],
+      discrepancies: []
+    });
+    setScannedItems([]);
+    setBulkScanMode(true);
+    setAuditProgress({ scanned: 0, total: demoProducts.length });
+  };
+
+  // End audit session
+  const endAuditSession = () => {
+    if (auditSession) {
+      const missedProducts = demoProducts.filter(p => 
+        !scannedItems.some(s => s.id === p.id)
+      );
+      
+      setAuditSession(prev => ({
+        ...prev,
+        endTime: new Date().toISOString(),
+        missedProducts,
+        completion: ((scannedItems.length / demoProducts.length) * 100).toFixed(1)
+      }));
+    }
+    setBulkScanMode(false);
+  };
 
   // Barcode scanner for inventory management
   const handleBarcodeScan = (barcode) => {
@@ -864,38 +906,122 @@ function Inventory() {
     );
     
     if (product) {
-      setScanFeedback({ 
-        type: 'success', 
-        message: `Stock check: ${product.name}`, 
-        product,
-        action: quickStockMode ? 'Quick count mode active' : 'View details'
-      });
+      if (bulkScanMode && auditSession) {
+        // Check if already scanned in this session
+        const alreadyScanned = scannedItems.find(item => item.id === product.id);
+        
+        if (alreadyScanned) {
+          setScanFeedback({ 
+            type: 'warning', 
+            message: `Already scanned: ${product.name}`, 
+            product,
+            count: alreadyScanned.scannedCount + 1
+          });
+          
+          // Update scan count
+          setScannedItems(prev => prev.map(item => 
+            item.id === product.id 
+              ? { ...item, scannedCount: item.scannedCount + 1, lastScanned: new Date().toISOString() }
+              : item
+          ));
+        } else {
+          setScanFeedback({ 
+            type: 'success', 
+            message: `Added to audit: ${product.name}`, 
+            product,
+            sessionProgress: `${scannedItems.length + 1}/${demoProducts.length}`
+          });
+          
+          // Add to scanned items
+          setScannedItems(prev => [...prev, {
+            ...product,
+            scannedCount: 1,
+            actualCount: null,
+            discrepancy: null,
+            firstScanned: new Date().toISOString(),
+            lastScanned: new Date().toISOString()
+          }]);
+          
+          setAuditProgress(prev => ({ ...prev, scanned: prev.scanned + 1 }));
+        }
+      } else {
+        setScanFeedback({ 
+          type: 'success', 
+          message: `Stock check: ${product.name}`, 
+          product,
+          action: quickStockMode ? 'Quick count mode active' : 'View details'
+        });
+      }
     } else {
       setScanFeedback({ type: 'error', message: `Product not found: ${barcode}` });
     }
     
-    // Clear feedback after 5 seconds
-    setTimeout(() => setScanFeedback(null), 5000);
+    // Clear feedback after 3 seconds in bulk mode, 5 seconds otherwise
+    setTimeout(() => setScanFeedback(null), bulkScanMode ? 2000 : 5000);
   };
 
-  const { isScanning } = useBarcodeScanner(handleBarcodeScan, { enabled: true });
+  const { isScanning } = useBarcodeScanner(handleBarcodeScan, { 
+    enabled: true,
+    scanDelay: bulkScanMode ? 50 : 100 // Faster scanning in bulk mode
+  });
+
+  // Update actual count for scanned item
+  const updateActualCount = (productId, count) => {
+    setScannedItems(prev => prev.map(item => {
+      if (item.id === productId) {
+        const actualCount = parseInt(count) || 0;
+        const discrepancy = actualCount - item.stock;
+        return { 
+          ...item, 
+          actualCount,
+          discrepancy: discrepancy !== 0 ? discrepancy : null
+        };
+      }
+      return item;
+    }));
+  };
 
   return (
     <div className="p-4 space-y-4">
       <SectionHeader 
         icon={Boxes} 
         title="Inventory" 
+        cta={
+          <div className="flex gap-2">
+            {!bulkScanMode ? (
+              <Button onClick={startAuditSession}>
+                <ScanLine className="h-4 w-4 mr-2"/>Start Bulk Audit
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={endAuditSession}>
+                <Check className="h-4 w-4 mr-2"/>Complete Audit
+              </Button>
+            )}
+          </div>
+        }
         extra={
           <div className="flex items-center gap-3">
-            <ScannerStatus isScanning={isScanning} />
-            <div className="flex items-center gap-2">
-              <Switch 
-                checked={quickStockMode} 
-                onCheckedChange={setQuickStockMode}
-                id="quick-stock"
-              />
-              <Label htmlFor="quick-stock" className="text-sm">Quick count</Label>
-            </div>
+            <ScannerStatus isScanning={isScanning} mode={bulkScanMode ? 'bulk' : 'normal'} />
+            {bulkScanMode && auditSession && (
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">
+                  {auditProgress.scanned}/{auditProgress.total} scanned
+                </Badge>
+                <div className="text-xs text-muted-foreground">
+                  Session: {auditSession.id}
+                </div>
+              </div>
+            )}
+            {!bulkScanMode && (
+              <div className="flex items-center gap-2">
+                <Switch 
+                  checked={quickStockMode} 
+                  onCheckedChange={setQuickStockMode}
+                  id="quick-stock"
+                />
+                <Label htmlFor="quick-stock" className="text-sm">Quick count</Label>
+              </div>
+            )}
           </div>
         }
       />
@@ -909,19 +1035,29 @@ function Inventory() {
           className={`p-4 rounded-lg border flex items-start gap-3 ${
             scanFeedback.type === 'success' 
               ? 'bg-blue-50 border-blue-200' 
+              : scanFeedback.type === 'warning'
+              ? 'bg-orange-50 border-orange-200'
               : 'bg-red-50 border-red-200'
           }`}
         >
           <div className="flex-shrink-0">
             {scanFeedback.type === 'success' ? (
               <CheckCircle className="h-5 w-5 text-blue-600" />
+            ) : scanFeedback.type === 'warning' ? (
+              <AlertCircle className="h-5 w-5 text-orange-600" />
             ) : (
               <AlertCircle className="h-5 w-5 text-red-600" />
             )}
           </div>
           <div className="flex-1">
-            <div className={`text-sm font-medium ${scanFeedback.type === 'success' ? 'text-blue-800' : 'text-red-800'}`}>
+            <div className={`text-sm font-medium ${
+              scanFeedback.type === 'success' ? 'text-blue-800' : 
+              scanFeedback.type === 'warning' ? 'text-orange-800' : 'text-red-800'
+            }`}>
               {scanFeedback.message}
+              {scanFeedback.sessionProgress && (
+                <span className="ml-2">({scanFeedback.sessionProgress})</span>
+              )}
             </div>
             {scanFeedback.product && (
               <div className="mt-2 p-3 bg-white rounded border">
@@ -930,13 +1066,18 @@ function Inventory() {
                     <div className="font-medium">{scanFeedback.product.name}</div>
                     <div className="text-sm text-muted-foreground">{scanFeedback.product.sku}</div>
                     <div className="text-sm text-muted-foreground">Barcode: {scanFeedback.product.barcode}</div>
+                    {scanFeedback.count && (
+                      <div className="text-sm text-orange-600 font-medium">
+                        Scan count: {scanFeedback.count}
+                      </div>
+                    )}
                   </div>
                   <div className="text-right">
                     <div className="text-lg font-semibold">{scanFeedback.product.stock}</div>
-                    <div className="text-xs text-muted-foreground">Current stock</div>
+                    <div className="text-xs text-muted-foreground">System stock</div>
                   </div>
                 </div>
-                {quickStockMode && (
+                {quickStockMode && !bulkScanMode && (
                   <div className="mt-3 flex gap-2">
                     <Input type="number" placeholder="Actual count" className="w-32" />
                     <Button size="sm">Update</Button>
@@ -948,12 +1089,129 @@ function Inventory() {
         </motion.div>
       )}
 
-      <Tabs defaultValue="stock">
+      {/* Bulk Audit Progress */}
+      {bulkScanMode && auditSession && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ScanLine className="h-5 w-5"/>
+              Bulk Audit Session: {auditSession.id}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-medium">Progress</span>
+                  <span className="text-sm text-muted-foreground">
+                    {auditProgress.scanned}/{auditProgress.total} items
+                  </span>
+                </div>
+                <Progress value={(auditProgress.scanned / auditProgress.total) * 100} />
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-700">{scannedItems.length}</div>
+                  <div className="text-sm text-blue-600">Items Scanned</div>
+                </div>
+                <div className="text-center p-3 bg-orange-50 rounded-lg">
+                  <div className="text-2xl font-bold text-orange-700">
+                    {scannedItems.filter(item => item.scannedCount > 1).length}
+                  </div>
+                  <div className="text-sm text-orange-600">Duplicate Scans</div>
+                </div>
+                <div className="text-center p-3 bg-red-50 rounded-lg">
+                  <div className="text-2xl font-bold text-red-700">
+                    {scannedItems.filter(item => item.discrepancy !== null).length}
+                  </div>
+                  <div className="text-sm text-red-600">Discrepancies</div>
+                </div>
+              </div>
+
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground">
+                  Scan products quickly or use the scanner gun. 
+                  {scannedItems.length < demoProducts.length && (
+                    <span className="block mt-1 font-medium">
+                      {demoProducts.length - scannedItems.length} items remaining
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Tabs defaultValue={bulkScanMode ? "audit" : "stock"}>
         <TabsList>
+          {bulkScanMode && <TabsTrigger value="audit">Audit Session</TabsTrigger>}
           <TabsTrigger value="stock">Stock</TabsTrigger>
           <TabsTrigger value="movements">Movements</TabsTrigger>
           <TabsTrigger value="expiry">Expiry</TabsTrigger>
         </TabsList>
+        
+        {bulkScanMode && (
+          <TabsContent value="audit" className="mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Scanned Items ({scannedItems.length})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {scannedItems.length > 0 ? (
+                  <div className="space-y-3">
+                    {scannedItems.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex-1">
+                          <div className="font-medium">{item.name}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {item.sku} • System: {item.stock}
+                            {item.scannedCount > 1 && (
+                              <span className="text-orange-600 ml-2">
+                                (Scanned {item.scannedCount}x)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <Input
+                              type="number"
+                              placeholder="Actual"
+                              value={item.actualCount || ""}
+                              onChange={(e) => updateActualCount(item.id, e.target.value)}
+                              className="w-20 text-center"
+                            />
+                          </div>
+                          {item.discrepancy !== null && (
+                            <Badge variant={item.discrepancy === 0 ? "secondary" : "destructive"}>
+                              {item.discrepancy === 0 ? "✓" : `${item.discrepancy > 0 ? '+' : ''}${item.discrepancy}`}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {scannedItems.length === demoProducts.length && (
+                      <div className="text-center p-4 bg-green-50 border border-green-200 rounded-lg">
+                        <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
+                        <div className="font-medium text-green-800">All items scanned!</div>
+                        <div className="text-sm text-green-600">Ready to complete audit</div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center p-8 text-muted-foreground">
+                    <ScanLine className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <div>Start scanning items to begin audit</div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+        
         <TabsContent value="stock" className="mt-4">
           <DataTable columns={[{key:"sku",label:"SKU"},{key:"name",label:"Product"},{key:"stock",label:"Qty"},{key:"min",label:"Reorder"},{key:"batch",label:"Batch"},{key:"barcode",label:"Barcode"},{key:"expiry",label:"Expiry"}]} data={demoProducts} />
         </TabsContent>
@@ -969,6 +1227,51 @@ function Inventory() {
           ]} />
         </TabsContent>
       </Tabs>
+
+      {/* Audit Completion Summary */}
+      {auditSession && auditSession.endTime && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Check className="h-5 w-5 text-green-600"/>
+              Audit Summary: {auditSession.id}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <div className="text-2xl font-bold text-blue-700">{auditSession.completion}%</div>
+                <div className="text-sm text-blue-600">Completion</div>
+              </div>
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <div className="text-2xl font-bold text-green-700">{scannedItems.length}</div>
+                <div className="text-sm text-green-600">Items Counted</div>
+              </div>
+              <div className="text-center p-3 bg-orange-50 rounded-lg">
+                <div className="text-2xl font-bold text-orange-700">{auditSession.missedProducts?.length || 0}</div>
+                <div className="text-sm text-orange-600">Items Missed</div>
+              </div>
+              <div className="text-center p-3 bg-red-50 rounded-lg">
+                <div className="text-2xl font-bold text-red-700">
+                  {scannedItems.filter(item => item.discrepancy !== null && item.discrepancy !== 0).length}
+                </div>
+                <div className="text-sm text-red-600">Discrepancies</div>
+              </div>
+            </div>
+            
+            <div className="mt-4 flex gap-2">
+              <Button onClick={() => alert("Audit report generated (demo)")}>
+                <Download className="h-4 w-4 mr-2"/>
+                Export Report
+              </Button>
+              <Button variant="outline" onClick={() => setAuditSession(null)}>
+                <X className="h-4 w-4 mr-2"/>
+                Close Summary
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
