@@ -330,7 +330,6 @@ function resolveAuditConflicts(audits) {
         auditTime: audit.endTime || audit.startTime,
         product,
         operatorId: audit.operatorId,
-        deviceId: audit.deviceId
       });
     });
   });
@@ -361,9 +360,9 @@ function resolveAuditConflicts(audits) {
   
   // Auto-resolve conflicts using latest-wins strategy
   conflicts.forEach(conflict => {
-    resolutions.push({
-      conflictId: `${conflict.productId}-${Date.now()}`,
-      productId: conflict.productId,
+resolutions.push({
+conflictId: `${conflict.productId}-${Date.now()}`,
+productId: conflict.productId,
       resolutionType: 'automatic',
       strategy: 'latest_wins',
       selectedAudit: conflict.recommendedResolution.selectedEntry.auditId,
