@@ -1037,6 +1037,8 @@ function Inventory() {
   const [conflictResolutions, setConflictResolutions] = useKV("conflict-resolutions", []);
   const [detectedConflicts, setDetectedConflicts] = useState([]);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const [activeAuditSessions, setActiveAuditSessions] = useKV("active-audit-sessions", []);
+  const [conflictPrevention, setConflictPrevention] = useState(null);
 
   // Network status
   const { isOnline, lastOnline } = useNetworkStatus();
@@ -1069,8 +1071,33 @@ function Inventory() {
         scanned: auditSessionData.scannedProducts?.length || 0, 
         total: demoProducts.length 
       });
+      
+      // Re-register active session if it exists
+      const activeSessions = checkActiveAuditSessions();
+      const existingSession = activeSessions.find(s => s.id === currentAuditId);
+      if (!existingSession) {
+        registerAuditSession(auditSessionData);
+      }
     }
   }, [currentAuditId, auditSessionData]);
+
+  // Clean up active sessions on component unmount or page refresh
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (auditSession && auditSession.id) {
+        // Mark session as abandoned if not completed
+        unregisterAuditSession(auditSession.id);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (auditSession && auditSession.id && !auditSession.endTime) {
+        unregisterAuditSession(auditSession.id);
+      }
+    };
+  }, [auditSession]);
 
   // Sync offline audit data to server
   const syncOfflineData = async () => {
@@ -1156,7 +1183,100 @@ function Inventory() {
     setTimeout(() => setScanFeedback(null), 3000);
   };
 
-  // Get audit priority score for conflict resolution
+  // Check for active audit sessions to prevent conflicts
+  const checkActiveAuditSessions = () => {
+    const now = Date.now();
+    const activeThreshold = 24 * 60 * 60 * 1000; // 24 hours
+    
+    // Filter out old sessions
+    const currentActiveSessions = activeAuditSessions.filter(session => {
+      const sessionAge = now - new Date(session.startTime).getTime();
+      return sessionAge < activeThreshold && !session.endTime;
+    });
+    
+    // Update active sessions list
+    if (currentActiveSessions.length !== activeAuditSessions.length) {
+      setActiveAuditSessions(currentActiveSessions);
+    }
+    
+    return currentActiveSessions;
+  };
+
+  // Register audit session as active
+  const registerAuditSession = (sessionData) => {
+    const activeSessions = checkActiveAuditSessions();
+    const newSession = {
+      id: sessionData.id,
+      operatorId: sessionData.operatorId,
+      deviceId: sessionData.deviceId,
+      startTime: sessionData.startTime,
+      branch: 'Main Kabul', // In real app, get from context
+      status: 'active'
+    };
+    
+    setActiveAuditSessions([...activeSessions, newSession]);
+  };
+
+  // Unregister audit session
+  const unregisterAuditSession = (sessionId) => {
+    setActiveAuditSessions(currentSessions => 
+      currentSessions.map(session => 
+        session.id === sessionId 
+          ? { ...session, endTime: new Date().toISOString(), status: 'completed' }
+          : session
+      ).filter(session => session.status === 'active') // Remove completed sessions
+    );
+  };
+
+  // Check for conflicts before starting new audit
+  const checkForAuditConflicts = () => {
+    const activeSessions = checkActiveAuditSessions();
+    
+    if (activeSessions.length > 0) {
+      const conflicts = {
+        hasConflicts: true,
+        activeSessions,
+        message: `${activeSessions.length} active audit session${activeSessions.length > 1 ? 's' : ''} detected`,
+        recommendations: []
+      };
+      
+      // Add specific recommendations based on conflict type
+      const sameBranch = activeSessions.filter(s => s.branch === 'Main Kabul');
+      const sameOperator = activeSessions.filter(s => s.operatorId === 'admin');
+      const sameDevice = activeSessions.filter(s => s.deviceId === 'DEVICE-001');
+      
+      if (sameBranch.length > 0) {
+        conflicts.recommendations.push({
+          type: 'branch_conflict',
+          message: 'Another audit is already running in this branch',
+          severity: 'high',
+          action: 'Wait for current audit to complete or coordinate with other operator'
+        });
+      }
+      
+      if (sameOperator.length > 0) {
+        conflicts.recommendations.push({
+          type: 'operator_conflict',
+          message: 'You have another active audit session',
+          severity: 'medium',
+          action: 'Complete your previous audit session first'
+        });
+      }
+      
+      if (sameDevice.length > 0) {
+        conflicts.recommendations.push({
+          type: 'device_conflict',
+          message: 'This device has an active audit session',
+          severity: 'medium',
+          action: 'Use a different device or complete the active session'
+        });
+      }
+      
+      return conflicts;
+    }
+    
+    return { hasConflicts: false };
+  };
   const getAuditPriorityScore = (audit) => {
     let score = 0;
     
@@ -1189,8 +1309,22 @@ function Inventory() {
     syncOfflineData();
   };
 
-  // Start new audit session
+  // Start new audit session with conflict prevention
   const startAuditSession = () => {
+    // Check for active audit conflicts first
+    const conflictCheck = checkForAuditConflicts();
+    
+    if (conflictCheck.hasConflicts) {
+      setConflictPrevention(conflictCheck);
+      setScanFeedback({
+        type: 'error',
+        message: conflictCheck.message,
+        autoSync: false
+      });
+      setTimeout(() => setScanFeedback(null), 5000);
+      return;
+    }
+    
     const sessionId = `AUDIT-${Date.now()}`;
     const newSession = {
       id: sessionId,
@@ -1208,9 +1342,19 @@ function Inventory() {
     setBulkScanMode(true);
     setAuditProgress({ scanned: 0, total: demoProducts.length });
     
+    // Register as active audit session for conflict prevention
+    registerAuditSession(newSession);
+    
     // Persist session for offline recovery
     setCurrentAuditId(sessionId);
     setAuditSessionData(newSession);
+    
+    setScanFeedback({
+      type: 'success',
+      message: `Audit session started: ${sessionId}`,
+      autoSync: false
+    });
+    setTimeout(() => setScanFeedback(null), 3000);
   };
 
   // End audit session
@@ -1233,6 +1377,9 @@ function Inventory() {
       
       setAuditSession(completedSession);
       
+      // Unregister from active sessions
+      unregisterAuditSession(auditSession.id);
+      
       // Save offline audit
       if (!isOnline) {
         setOfflineAudits(currentAudits => [...currentAudits, completedSession]);
@@ -1246,6 +1393,13 @@ function Inventory() {
       // Clear session storage
       setCurrentAuditId(null);
       setAuditSessionData(null);
+      
+      setScanFeedback({
+        type: 'success',
+        message: `Audit completed: ${completedSession.completion}% coverage`,
+        autoSync: false
+      });
+      setTimeout(() => setScanFeedback(null), 5000);
     }
     setBulkScanMode(false);
   };
@@ -1402,6 +1556,11 @@ function Inventory() {
               isAutomaticSyncing={isAutomaticSyncing}
             />
             <ScannerStatus isScanning={isScanning} mode={bulkScanMode ? 'bulk' : 'normal'} />
+            {activeAuditSessions.length > 0 && !bulkScanMode && (
+              <Badge variant="outline" className="text-orange-600 border-orange-300">
+                {activeAuditSessions.length} active audit{activeAuditSessions.length > 1 ? 's' : ''}
+              </Badge>
+            )}
             {detectedConflicts.length > 0 && (
               <Badge variant="destructive" className="animate-pulse">
                 {detectedConflicts.length} conflicts
@@ -1431,6 +1590,131 @@ function Inventory() {
           </div>
         }
       />
+
+      {/* Conflict Prevention Warning */}
+      {conflictPrevention && (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-orange-800">
+              <AlertOctagon className="h-5 w-5"/>
+              Active Audit Session Detected
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <p className="text-sm text-orange-700">
+                {conflictPrevention.message}. Starting another audit may cause data conflicts.
+              </p>
+              
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-orange-800">Active Sessions:</div>
+                {conflictPrevention.activeSessions.map((session) => (
+                  <Card key={session.id} className="border-orange-200">
+                    <CardContent className="p-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-medium">{session.id}</div>
+                          <div className="text-sm text-muted-foreground">
+                            Started: {new Date(session.startTime).toLocaleString()}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            Operator: {session.operatorId} • Device: {session.deviceId}
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="text-orange-600">
+                          {session.status}
+                        </Badge>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              
+              {conflictPrevention.recommendations && (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-orange-800">Recommendations:</div>
+                  {conflictPrevention.recommendations.map((rec, idx) => (
+                    <div key={idx} className={`p-2 rounded border text-sm ${
+                      rec.severity === 'high' ? 'bg-red-50 border-red-200 text-red-700' :
+                      rec.severity === 'medium' ? 'bg-orange-50 border-orange-200 text-orange-700' :
+                      'bg-yellow-50 border-yellow-200 text-yellow-700'
+                    }`}>
+                      <div className="font-medium">{rec.message}</div>
+                      <div className="text-xs mt-1">{rec.action}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              <div className="flex gap-2 pt-2">
+                <Button 
+                  variant="outline"
+                  onClick={() => setConflictPrevention(null)}
+                >
+                  <X className="h-4 w-4 mr-2"/>
+                  Dismiss
+                </Button>
+                <Button 
+                  onClick={() => {
+                    // Force start audit anyway (with warning)
+                    setConflictPrevention(null);
+                    const sessionId = `AUDIT-${Date.now()}`;
+                    const newSession = {
+                      id: sessionId,
+                      startTime: new Date().toISOString(),
+                      scannedProducts: [],
+                      missedProducts: [],
+                      discrepancies: [],
+                      deviceId: 'DEVICE-001',
+                      operatorId: 'admin',
+                      isOffline: !isOnline,
+                      forceStarted: true // Flag to indicate this was force-started
+                    };
+                    
+                    setAuditSession(newSession);
+                    setScannedItems([]);
+                    setBulkScanMode(true);
+                    setAuditProgress({ scanned: 0, total: demoProducts.length });
+                    registerAuditSession(newSession);
+                    setCurrentAuditId(sessionId);
+                    setAuditSessionData(newSession);
+                    
+                    setScanFeedback({
+                      type: 'warning',
+                      message: 'Audit started despite active sessions - resolve conflicts during sync',
+                      autoSync: false
+                    });
+                    setTimeout(() => setScanFeedback(null), 5000);
+                  }}
+                  className="bg-orange-600 hover:bg-orange-700"
+                >
+                  <AlertOctagon className="h-4 w-4 mr-2"/>
+                  Force Start Anyway
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    // Check again in case sessions ended
+                    const updated = checkForAuditConflicts();
+                    if (!updated.hasConflicts) {
+                      setConflictPrevention(null);
+                      setScanFeedback({
+                        type: 'success',
+                        message: 'No active sessions detected - ready to start audit',
+                        autoSync: false
+                      });
+                      setTimeout(() => setScanFeedback(null), 3000);
+                    }
+                  }}
+                >
+                  <RefreshCcw className="h-4 w-4 mr-2"/>
+                  Check Again
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Scan Feedback */}
       {scanFeedback && (
@@ -1790,6 +2074,12 @@ function Inventory() {
                   Offline Mode
                 </Badge>
               )}
+              {auditSession.forceStarted && (
+                <Badge variant="destructive" className="text-white">
+                  <AlertOctagon className="h-3 w-3 mr-1"/>
+                  Force Started
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1898,6 +2188,11 @@ function Inventory() {
                         <div className="font-medium text-green-800">All items scanned!</div>
                         <div className="text-sm text-green-600">
                           Ready to complete audit {!isOnline && '(will sync when online)'}
+                          {auditSession.forceStarted && (
+                            <div className="text-xs text-orange-600 mt-1">
+                              ⚠️ Force-started session - check for conflicts before finalizing
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
