@@ -313,6 +313,7 @@ function LanguageSelector({ className = "" }) {
   );
 }
 // Conflict resolution for overlapping audit data
+function resolveAuditConflicts(audits) {
   const conflicts = [];
   const resolutions = [];
   
