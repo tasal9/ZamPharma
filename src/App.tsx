@@ -66,6 +66,105 @@ import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 
+// Conflict resolution for overlapping audit data
+function resolveAuditConflicts(audits) {
+  const conflicts = [];
+  const resolutions = [];
+  
+  // Group audits by product ID to detect overlaps
+  const productAudits = {};
+  
+  audits.forEach(audit => {
+    audit.scannedProducts?.forEach(product => {
+      if (!productAudits[product.id]) {
+        productAudits[product.id] = [];
+      }
+      productAudits[product.id].push({
+        auditId: audit.id,
+        auditTime: audit.endTime || audit.startTime,
+        product,
+        operatorId: audit.operatorId,
+        deviceId: audit.deviceId
+      });
+    });
+  });
+  
+  // Detect conflicts (same product audited in multiple sessions)
+  Object.entries(productAudits).forEach(([productId, auditEntries]) => {
+    if (auditEntries.length > 1) {
+      // Sort by audit time to determine priority
+      auditEntries.sort((a, b) => new Date(b.auditTime) - new Date(a.auditTime));
+      
+      const latestEntry = auditEntries[0];
+      const conflictingEntries = auditEntries.slice(1);
+      
+      conflicts.push({
+        productId: parseInt(productId),
+        productName: latestEntry.product.name,
+        productSku: latestEntry.product.sku,
+        conflictType: 'product_overlap',
+        entries: auditEntries,
+        recommendedResolution: {
+          type: 'use_latest',
+          selectedEntry: latestEntry,
+          reason: 'Most recent audit takes precedence'
+        }
+      });
+    }
+  });
+  
+  // Auto-resolve conflicts using latest-wins strategy
+  conflicts.forEach(conflict => {
+    resolutions.push({
+      conflictId: `${conflict.productId}-${Date.now()}`,
+      productId: conflict.productId,
+      resolutionType: 'automatic',
+      strategy: 'latest_wins',
+      selectedAudit: conflict.recommendedResolution.selectedEntry.auditId,
+      resolvedAt: new Date().toISOString(),
+      discardedAudits: conflict.entries.slice(1).map(e => e.auditId)
+    });
+  });
+  
+  return { conflicts, resolutions };
+}
+
+// Merge audit data with conflict resolution
+function mergeAuditData(audits, resolutions) {
+  const mergedData = {};
+  const discardedEntries = new Set();
+  
+  // Mark entries to discard based on resolutions
+  resolutions.forEach(resolution => {
+    resolution.discardedAudits?.forEach(auditId => {
+      discardedEntries.add(`${auditId}-${resolution.productId}`);
+    });
+  });
+  
+  // Build merged dataset
+  audits.forEach(audit => {
+    audit.scannedProducts?.forEach(product => {
+      const entryKey = `${audit.id}-${product.id}`;
+      
+      if (!discardedEntries.has(entryKey)) {
+        if (!mergedData[product.id] || 
+            new Date(audit.endTime || audit.startTime) > 
+            new Date(mergedData[product.id].auditTime)) {
+          mergedData[product.id] = {
+            ...product,
+            auditId: audit.id,
+            auditTime: audit.endTime || audit.startTime,
+            operatorId: audit.operatorId,
+            deviceId: audit.deviceId
+          };
+        }
+      }
+    });
+  });
+  
+  return Object.values(mergedData);
+}
+
 // Utility: simple table
 function DataTable({ columns, data, onEdit, onDelete, onView, pageSize = 8 }) {
   const [q, setQ] = useState("");
@@ -935,6 +1034,9 @@ function Inventory() {
   const [lastSyncTime, setLastSyncTime] = useKV("last-sync-time", null);
   const [currentAuditId, setCurrentAuditId] = useKV("current-audit-session", null);
   const [auditSessionData, setAuditSessionData] = useKV("audit-session-data", null);
+  const [conflictResolutions, setConflictResolutions] = useKV("conflict-resolutions", []);
+  const [detectedConflicts, setDetectedConflicts] = useState([]);
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
 
   // Network status
   const { isOnline, lastOnline } = useNetworkStatus();
@@ -946,6 +1048,16 @@ function Inventory() {
       syncOfflineData();
     }
   }, [isOnline, pendingSyncCount]);
+
+  // Detect conflicts when audits are loaded
+  useEffect(() => {
+    if (offlineAudits.length > 1) {
+      const { conflicts } = resolveAuditConflicts(offlineAudits);
+      if (conflicts.length > 0) {
+        setDetectedConflicts(conflicts);
+      }
+    }
+  }, [offlineAudits]);
 
   // Load audit session from storage if exists
   useEffect(() => {
@@ -968,21 +1080,44 @@ function Inventory() {
         return;
       }
 
+      // Detect and resolve conflicts before syncing
+      const { conflicts, resolutions } = resolveAuditConflicts(offlineAudits);
+      
+      if (conflicts.length > 0) {
+        // Store conflict resolutions
+        setConflictResolutions(currentResolutions => [...currentResolutions, ...resolutions]);
+        
+        setScanFeedback({
+          type: 'warning',
+          message: `Resolved ${conflicts.length} data conflicts using latest-wins strategy`,
+          autoSync: true
+        });
+      }
+
+      // Merge audit data with conflict resolution
+      const mergedData = mergeAuditData(offlineAudits, resolutions);
+
       // Simulate API sync
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // In real implementation, upload audits to server
-      console.log('Syncing audits:', offlineAudits);
+      // In real implementation, upload merged and resolved audits to server
+      console.log('Syncing audits with conflict resolution:', {
+        originalAudits: offlineAudits.length,
+        conflicts: conflicts.length,
+        resolutions: resolutions.length,
+        mergedData: mergedData.length
+      });
       
       // Clear offline data after successful sync
       setOfflineAudits([]);
       setPendingSyncCount(0);
       setLastSyncTime(Date.now());
+      setDetectedConflicts([]);
       setIsAutomaticSyncing(false);
       
       setScanFeedback({
         type: 'success',
-        message: `Synced ${offlineAudits.length} audit sessions to server`,
+        message: `Synced ${offlineAudits.length} audit sessions${conflicts.length > 0 ? ` (${conflicts.length} conflicts resolved)` : ''} to server`,
         autoSync: true
       });
       
@@ -996,6 +1131,46 @@ function Inventory() {
       });
       setTimeout(() => setScanFeedback(null), 5000);
     }
+  };
+
+  // Manual conflict resolution
+  const resolveConflictManually = (conflictId, selectedAuditId, strategy = 'manual') => {
+    const resolution = {
+      conflictId,
+      resolutionType: 'manual',
+      strategy,
+      selectedAudit: selectedAuditId,
+      resolvedAt: new Date().toISOString(),
+      operatorId: 'admin' // In real app, get from auth context
+    };
+    
+    setConflictResolutions(current => [...current, resolution]);
+    setDetectedConflicts(current => current.filter(c => c.productId !== parseInt(conflictId.split('-')[0])));
+    
+    setScanFeedback({
+      type: 'success',
+      message: 'Conflict resolved successfully',
+      autoSync: false
+    });
+    
+    setTimeout(() => setScanFeedback(null), 3000);
+  };
+
+  // Get audit priority score for conflict resolution
+  const getAuditPriorityScore = (audit) => {
+    let score = 0;
+    
+    // More recent audits get higher priority
+    const ageHours = (Date.now() - new Date(audit.auditTime)) / (1000 * 60 * 60);
+    score += Math.max(0, 100 - ageHours);
+    
+    // Complete audits get higher priority
+    if (audit.actualCount !== null) score += 50;
+    
+    // Multiple scans indicate thoroughness
+    score += Math.min(20, (audit.scannedCount || 1) * 5);
+    
+    return score;
   };
 
   // Manual sync trigger
@@ -1197,7 +1372,16 @@ function Inventory() {
                 <Check className="h-4 w-4 mr-2"/>Complete Audit
               </Button>
             )}
-            {pendingSyncCount > 0 && (
+            {detectedConflicts.length > 0 && (
+              <Button 
+                variant="destructive" 
+                onClick={() => setShowConflictDialog(detectedConflicts[0])}
+              >
+                <AlertOctagon className="h-4 w-4 mr-2"/>
+                Resolve Conflicts ({detectedConflicts.length})
+              </Button>
+            )}
+            {pendingSyncCount > 0 && detectedConflicts.length === 0 && (
               <Button 
                 variant="outline" 
                 onClick={manualSync}
@@ -1218,6 +1402,11 @@ function Inventory() {
               isAutomaticSyncing={isAutomaticSyncing}
             />
             <ScannerStatus isScanning={isScanning} mode={bulkScanMode ? 'bulk' : 'normal'} />
+            {detectedConflicts.length > 0 && (
+              <Badge variant="destructive" className="animate-pulse">
+                {detectedConflicts.length} conflicts
+              </Badge>
+            )}
             {bulkScanMode && auditSession && (
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">
@@ -1306,6 +1495,202 @@ function Inventory() {
         </motion.div>
       )}
 
+      {/* Conflict Resolution Dialog */}
+      {detectedConflicts.length > 0 && (
+        <Card className="border-red-200 bg-red-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-800">
+              <AlertOctagon className="h-5 w-5"/>
+              Data Conflicts Detected ({detectedConflicts.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <p className="text-sm text-red-700">
+                Multiple audit sessions contain overlapping data. Review and resolve conflicts before syncing.
+              </p>
+              
+              {detectedConflicts.map((conflict) => (
+                <Card key={conflict.productId} className="border-red-200">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-medium">{conflict.productName}</div>
+                        <div className="text-sm text-muted-foreground">SKU: {conflict.productSku}</div>
+                        <div className="text-sm text-red-700 mt-1">
+                          Found in {conflict.entries.length} audit sessions
+                        </div>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        onClick={() => setShowConflictDialog(conflict)}
+                      >
+                        Resolve
+                      </Button>
+                    </div>
+                    
+                    <div className="mt-3 space-y-2">
+                      <div className="text-xs font-medium text-muted-foreground">Conflicting Entries:</div>
+                      {conflict.entries.map((entry, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded border">
+                          <div>
+                            <span className="font-medium">{entry.auditId}</span>
+                            <span className="text-muted-foreground ml-2">
+                              {new Date(entry.auditTime).toLocaleString()}
+                            </span>
+                            <span className="text-muted-foreground ml-2">
+                              by {entry.operatorId}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {entry.product.actualCount !== null && (
+                              <Badge variant="secondary" className="text-xs">
+                                Count: {entry.product.actualCount}
+                              </Badge>
+                            )}
+                            {idx === 0 && (
+                              <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                                Latest
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <div className="mt-3 p-2 bg-blue-50 rounded text-xs">
+                      <div className="font-medium text-blue-800">Recommended: Use Latest</div>
+                      <div className="text-blue-700">
+                        {conflict.recommendedResolution.reason}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              
+              <div className="flex gap-2 pt-2">
+                <Button 
+                  onClick={() => {
+                    // Auto-resolve all conflicts using latest-wins
+                    detectedConflicts.forEach(conflict => {
+                      resolveConflictManually(
+                        `${conflict.productId}-${Date.now()}`,
+                        conflict.recommendedResolution.selectedEntry.auditId,
+                        'auto_latest'
+                      );
+                    });
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <Check className="h-4 w-4 mr-2"/>
+                  Auto-Resolve All (Use Latest)
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => setShowConflictDialog(detectedConflicts[0])}
+                >
+                  Review Manually
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Manual Conflict Resolution Dialog */}
+      {showConflictDialog && (
+        <Dialog open={!!showConflictDialog} onOpenChange={() => setShowConflictDialog(false)}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Resolve Data Conflict</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <div className="font-medium">{showConflictDialog.productName}</div>
+                <div className="text-sm text-muted-foreground">SKU: {showConflictDialog.productSku}</div>
+                <div className="text-sm text-red-700 mt-1">
+                  This product appears in {showConflictDialog.entries.length} different audit sessions
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="text-sm font-medium">Select which data to keep:</div>
+                {showConflictDialog.entries.map((entry, idx) => (
+                  <div key={idx} className="border rounded-lg p-3 hover:bg-muted/30 cursor-pointer"
+                       onClick={() => {
+                         resolveConflictManually(
+                           `${showConflictDialog.productId}-${Date.now()}`,
+                           entry.auditId,
+                           'manual_select'
+                         );
+                         setShowConflictDialog(false);
+                       }}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">{entry.auditId}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {new Date(entry.auditTime).toLocaleString()} • by {entry.operatorId}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          Device: {entry.deviceId} • Scanned: {entry.product.scannedCount}x
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-semibold">
+                          {entry.product.actualCount !== null 
+                            ? entry.product.actualCount 
+                            : '—'}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Actual Count</div>
+                        <div className="flex gap-1 mt-1">
+                          {entry.product.actualCount !== null && (
+                            <Badge variant="secondary" className="text-xs">Complete</Badge>
+                          )}
+                          {idx === 0 && (
+                            <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                              Latest
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {entry.product.discrepancy !== null && entry.product.discrepancy !== 0 && (
+                      <div className="mt-2 text-sm">
+                        <Badge variant={entry.product.discrepancy > 0 ? "default" : "destructive"}>
+                          {entry.product.discrepancy > 0 ? '+' : ''}{entry.product.discrepancy} vs system
+                        </Badge>
+                      </div>
+                    )}
+                    
+                    <div className="mt-2 text-xs bg-muted/50 p-2 rounded">
+                      Priority Score: {getAuditPriorityScore(entry).toFixed(0)} 
+                      {idx === 0 && <span className="text-green-600 ml-2">(Recommended)</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="flex justify-end gap-2 pt-4">
+                <Button variant="outline" onClick={() => setShowConflictDialog(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={() => {
+                  resolveConflictManually(
+                    `${showConflictDialog.productId}-${Date.now()}`,
+                    showConflictDialog.recommendedResolution.selectedEntry.auditId,
+                    'auto_recommended'
+                  );
+                  setShowConflictDialog(false);
+                }}>
+                  Use Recommended
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Offline Audits Pending Sync */}
       {offlineAudits.length > 0 && (
         <Card className="border-orange-200 bg-orange-50">
@@ -1313,6 +1698,11 @@ function Inventory() {
             <CardTitle className="flex items-center gap-2 text-orange-800">
               <CloudOff className="h-5 w-5"/>
               Offline Audits Pending Sync
+              {detectedConflicts.length > 0 && (
+                <Badge variant="destructive" className="ml-2">
+                  {detectedConflicts.length} conflicts
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1324,19 +1714,63 @@ function Inventory() {
                     <div className="text-sm text-muted-foreground">
                       {audit.scannedProducts?.length || 0} items • {audit.completion}% complete
                     </div>
+                    {/* Show if this audit has conflicts */}
+                    {detectedConflicts.some(conflict => 
+                      conflict.entries.some(entry => entry.auditId === audit.id)
+                    ) && (
+                      <div className="text-xs text-red-600 font-medium mt-1">
+                        Contains conflicting data
+                      </div>
+                    )}
                   </div>
-                  <Badge variant="outline">
-                    {new Date(audit.endTime).toLocaleDateString()}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">
+                      {new Date(audit.endTime).toLocaleDateString()}
+                    </Badge>
+                    {detectedConflicts.some(conflict => 
+                      conflict.entries.some(entry => entry.auditId === audit.id)
+                    ) && (
+                      <AlertOctagon className="h-4 w-4 text-red-500" />
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
+            
+            {conflictResolutions.length > 0 && (
+              <div className="mt-4 p-3 bg-blue-50 rounded border border-blue-200">
+                <div className="text-sm font-medium text-blue-800 mb-2">
+                  Conflict Resolutions ({conflictResolutions.length})
+                </div>
+                {conflictResolutions.slice(-3).map((resolution, idx) => (
+                  <div key={idx} className="text-xs text-blue-700">
+                    Product {resolution.productId}: {resolution.strategy} • {new Date(resolution.resolvedAt).toLocaleTimeString()}
+                  </div>
+                ))}
+                {conflictResolutions.length > 3 && (
+                  <div className="text-xs text-blue-600 mt-1">
+                    +{conflictResolutions.length - 3} more...
+                  </div>
+                )}
+              </div>
+            )}
+            
             {isOnline && (
-              <div className="mt-3">
-                <Button onClick={manualSync} disabled={isAutomaticSyncing}>
-                  <Cloud className={`h-4 w-4 mr-2 ${isAutomaticSyncing ? 'animate-pulse' : ''}`}/>
-                  {isAutomaticSyncing ? 'Syncing...' : 'Sync Now'}
-                </Button>
+              <div className="mt-3 flex gap-2">
+                {detectedConflicts.length > 0 ? (
+                  <Button 
+                    variant="destructive"
+                    onClick={() => setShowConflictDialog(detectedConflicts[0])}
+                  >
+                    <AlertOctagon className="h-4 w-4 mr-2"/>
+                    Resolve Conflicts First
+                  </Button>
+                ) : (
+                  <Button onClick={manualSync} disabled={isAutomaticSyncing}>
+                    <Cloud className={`h-4 w-4 mr-2 ${isAutomaticSyncing ? 'animate-pulse' : ''}`}/>
+                    {isAutomaticSyncing ? 'Syncing...' : 'Sync Now'}
+                  </Button>
+                )}
               </div>
             )}
           </CardContent>
