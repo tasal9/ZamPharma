@@ -1,5 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslation } from 'react-i18next';
+import './i18n';
 import {
   LayoutGrid,
   ShoppingCart,
@@ -45,6 +47,7 @@ import {
   Cloud,
   CloudOff,
   Zap,
+  Languages,
 } from "lucide-react";
 import { useKV } from '@github/spark/hooks';
 
@@ -66,8 +69,250 @@ import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 
+// Language and RTL support hook
+function useLanguage() {
+  const { i18n } = useTranslation();
+  const [direction, setDirection] = useKV('layout-direction', 'ltr');
+  const [invoiceLanguage, setInvoiceLanguage] = useKV('invoice-language', 'en');
+
+  const isRTL = direction === 'rtl' || ['fa', 'ps'].includes(i18n.language);
+
+  useEffect(() => {
+    // Auto-set direction based on language
+    if (['fa', 'ps'].includes(i18n.language) && direction === 'ltr') {
+      setDirection('rtl');
+    } else if (i18n.language === 'en' && direction === 'rtl') {
+      setDirection('ltr');
+    }
+  }, [i18n.language, direction, setDirection]);
+
+  useEffect(() => {
+    // Apply direction to document
+    document.documentElement.dir = direction;
+    document.documentElement.lang = i18n.language;
+  }, [direction, i18n.language]);
+
+  const changeLanguage = (lng) => {
+    i18n.changeLanguage(lng);
+    const newDirection = ['fa', 'ps'].includes(lng) ? 'rtl' : 'ltr';
+    setDirection(newDirection);
+  };
+
+  const getLanguageName = (code) => {
+    const names = {
+      en: 'English',
+      fa: 'فارسی (Dari)',
+      ps: 'پښتو (Pashto)'
+    };
+    return names[code] || code;
+  };
+
+  return {
+    language: i18n.language,
+    direction,
+    isRTL,
+    invoiceLanguage,
+    changeLanguage,
+    setDirection,
+    setInvoiceLanguage,
+    getLanguageName
+  };
+}
+
+// Dual-language receipt component
+function DualLanguageReceipt({ cart, customer, invoiceData, onClose }) {
+  const { t, i18n } = useTranslation();
+  const { isRTL, invoiceLanguage } = useLanguage();
+  
+  const total = cart.reduce((s, i) => s + i.qty * i.price, 0);
+  const subtotal = total / 1.05; // Assuming 5% VAT
+  const vat = total - subtotal;
+  
+  const formatCurrency = (amount) => `${amount.toFixed(2)} AFN`;
+  
+  const shouldShowDual = invoiceLanguage === 'dual';
+  const primaryLang = shouldShowDual ? 'en' : (invoiceLanguage === 'local' ? i18n.language : 'en');
+  const secondaryLang = shouldShowDual ? i18n.language : null;
+
+  return (
+    <Dialog open={true} onOpenChange={onClose}>
+      <DialogContent className={`sm:max-w-md ${isRTL ? 'text-right' : 'text-left'}`}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Receipt className="h-5 w-5"/>
+            {t('receipt.invoice')} #{invoiceData?.id || 'INV-' + Date.now()}
+          </DialogTitle>
+        </DialogHeader>
+        
+        <div className="space-y-4 font-mono text-sm">
+          {/* Header */}
+          <div className="text-center border-b pb-3">
+            <div className="font-bold text-lg">ZamPharm</div>
+            {shouldShowDual && <div className="font-bold text-lg">زام فارم</div>}
+            <div className="text-xs text-muted-foreground">Main Kabul Branch</div>
+            {shouldShowDual && <div className="text-xs text-muted-foreground">د کابل اصلي څانګه</div>}
+          </div>
+          
+          {/* Invoice details */}
+          <div className="flex justify-between text-xs">
+            <div>
+              <div>{t('common.date')}: {new Date().toLocaleDateString()}</div>
+              <div>{t('common.time')}: {new Date().toLocaleTimeString()}</div>
+              <div>{t('pos.customer')}: {customer?.name || 'Walk-in'}</div>
+              {shouldShowDual && (
+                <>
+                  <div>نېټه: {new Date().toLocaleDateString('fa-AF')}</div>
+                  <div>وخت: {new Date().toLocaleTimeString('fa-AF')}</div>
+                  <div>پیرودونکی: {customer?.name || 'د لارې پیرودونکی'}</div>
+                </>
+              )}
+            </div>
+            <div className="text-right">
+              <div>TIN: 123456789</div>
+              <div>Tel: +93 700 000 000</div>
+            </div>
+          </div>
+          
+          {/* Items */}
+          <div className="border-t border-b py-2">
+            <div className="grid grid-cols-4 gap-2 font-bold text-xs border-b pb-1">
+              <div>{t('common.product')}</div>
+              <div className="text-center">{t('common.quantity')}</div>
+              <div className="text-right">{t('common.price')}</div>
+              <div className="text-right">{t('common.total')}</div>
+            </div>
+            {shouldShowDual && (
+              <div className="grid grid-cols-4 gap-2 font-bold text-xs border-b pb-1">
+                <div>توکي</div>
+                <div className="text-center">مقدار</div>
+                <div className="text-right">بیه</div>
+                <div className="text-right">ټول</div>
+              </div>
+            )}
+            
+            {cart.map((item, idx) => (
+              <div key={idx} className="space-y-1">
+                <div className="grid grid-cols-4 gap-2 text-xs py-1">
+                  <div className="truncate">{item.name}</div>
+                  <div className="text-center">{item.qty}</div>
+                  <div className="text-right">{formatCurrency(item.price)}</div>
+                  <div className="text-right">{formatCurrency(item.qty * item.price)}</div>
+                </div>
+                {shouldShowDual && (
+                  <div className="grid grid-cols-4 gap-2 text-xs py-1 text-muted-foreground">
+                    <div className="truncate">{item.name}</div>
+                    <div className="text-center">{item.qty}</div>
+                    <div className="text-right">{formatCurrency(item.price)}</div>
+                    <div className="text-right">{formatCurrency(item.qty * item.price)}</div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          
+          {/* Totals */}
+          <div className="space-y-1">
+            <div className="flex justify-between">
+              <span>{t('receipt.subtotal')}:</span>
+              <span>{formatCurrency(subtotal)}</span>
+            </div>
+            {shouldShowDual && (
+              <div className="flex justify-between text-muted-foreground">
+                <span>برخه ټوله:</span>
+                <span>{formatCurrency(subtotal)}</span>
+              </div>
+            )}
+            
+            <div className="flex justify-between">
+              <span>{t('receipt.tax')} (5%):</span>
+              <span>{formatCurrency(vat)}</span>
+            </div>
+            {shouldShowDual && (
+              <div className="flex justify-between text-muted-foreground">
+                <span>مالیه (۵%):</span>
+                <span>{formatCurrency(vat)}</span>
+              </div>
+            )}
+            
+            <div className="flex justify-between font-bold border-t pt-1">
+              <span>{t('receipt.grandTotal')}:</span>
+              <span>{formatCurrency(total)}</span>
+            </div>
+            {shouldShowDual && (
+              <div className="flex justify-between font-bold text-muted-foreground">
+                <span>ټوله مجموعه:</span>
+                <span>{formatCurrency(total)}</span>
+              </div>
+            )}
+          </div>
+          
+          {/* Payment method */}
+          <div className="text-center text-xs border-t pt-2">
+            <div>{t('receipt.paymentMethod')}: {t('pos.cash')}</div>
+            {shouldShowDual && <div>د تادیې طریقه: نغدې پیسې</div>}
+          </div>
+          
+          {/* Footer */}
+          <div className="text-center text-xs space-y-1">
+            <div>{t('receipt.thankYou')}</div>
+            {shouldShowDual && <div>د تاسو د پیرودنې څخه مننه!</div>}
+            <div>{t('receipt.visitAgain')}</div>
+            {shouldShowDual && <div>لطفاً بیا راشئ</div>}
+            <div className="text-muted-foreground text-xs mt-2">
+              {t('receipt.regulatoryInfo')}
+            </div>
+            {shouldShowDual && (
+              <div className="text-muted-foreground text-xs">
+                د مقرراتو د تعمیل لپاره
+              </div>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex gap-2 pt-4">
+          <Button onClick={() => window.print()} className="flex-1">
+            <Printer className="h-4 w-4 mr-2"/>
+            {t('common.print')}
+          </Button>
+          <Button variant="outline" onClick={onClose}>
+            {t('common.close')}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Language selector component
+function LanguageSelector({ className = "" }) {
+  const { t } = useTranslation();
+  const { language, changeLanguage, getLanguageName } = useLanguage();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className={className}>
+          <Languages className="h-5 w-5"/>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>{t('settings.selectLanguage')}</DropdownMenuLabel>
+        <DropdownMenuSeparator/>
+        {['en', 'fa', 'ps'].map((lng) => (
+          <DropdownMenuItem 
+            key={lng} 
+            onClick={() => changeLanguage(lng)}
+            className={language === lng ? 'bg-muted' : ''}
+          >
+            {getLanguageName(lng)}
+            {language === lng && <Check className="h-4 w-4 ml-auto"/>}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 // Conflict resolution for overlapping audit data
-function resolveAuditConflicts(audits) {
   const conflicts = [];
   const resolutions = [];
   
@@ -428,18 +673,22 @@ function SectionHeader({ icon: Icon, title, cta, extra }) {
 
 // POS Drawer
 function POSDrawer({ cart, setCart, onCheckout }) {
+  const { t } = useTranslation();
+  const { isRTL } = useLanguage();
+  
   const total = cart.reduce((s, i) => s + i.qty * i.price, 0);
   const updateQty = (id, delta) => setCart((c) => c.map((it) => it.id === id ? { ...it, qty: Math.max(1, it.qty + delta) } : it));
   const remove = (id) => setCart((c) => c.filter((it) => it.id !== id));
+  
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button size="lg" className="gap-2"><ShoppingCart className="h-4 w-4"/>Cart ({cart.length})</Button>
+        <Button size="lg" className="gap-2"><ShoppingCart className="h-4 w-4"/>{t('pos.cart')} ({cart.length})</Button>
       </SheetTrigger>
-      <SheetContent className="w-full sm:max-w-md">
+      <SheetContent className={`w-full sm:max-w-md ${isRTL ? 'text-right' : 'text-left'}`}>
         <SheetHeader>
-          <SheetTitle>POS Cart</SheetTitle>
-          <SheetDescription>Scan, adjust quantities, and checkout.</SheetDescription>
+          <SheetTitle>{t('pos.cart')}</SheetTitle>
+          <SheetDescription>{t('pos.scanInstruction')}</SheetDescription>
         </SheetHeader>
         <div className="mt-4 space-y-3">
           {cart.map((item) => (
@@ -448,11 +697,11 @@ function POSDrawer({ cart, setCart, onCheckout }) {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-medium">{item.name}</div>
-                    <div className="text-xs text-muted-foreground">Batch {item.batch} • Exp {item.expiry}</div>
+                    <div className="text-xs text-muted-foreground">{t('common.batch')} {item.batch} • {t('common.expiry')} {item.expiry}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm">{(item.price).toFixed(2)} AFN</div>
-                    <div className="text-xs text-muted-foreground">VAT {item.tax}%</div>
+                    <div className="text-xs text-muted-foreground">{t('pos.vat', { rate: item.tax })}</div>
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-3">
@@ -468,25 +717,25 @@ function POSDrawer({ cart, setCart, onCheckout }) {
               </CardContent>
             </Card>
           ))}
-          {cart.length === 0 && <div className="text-sm text-muted-foreground">Cart is empty</div>}
+          {cart.length === 0 && <div className="text-sm text-muted-foreground">{t('pos.cart')} is empty</div>}
         </div>
         <Separator className="my-4"/>
         <div className="flex items-center justify-between text-lg font-semibold">
-          <span>Total</span>
+          <span>{t('common.total')}</span>
           <span>{total.toFixed(2)} AFN</span>
         </div>
         <div className="flex items-center justify-between mt-4 gap-2">
           <Select defaultValue="cash">
-            <SelectTrigger className="w-full"><SelectValue placeholder="Payment"/></SelectTrigger>
+            <SelectTrigger className="w-full"><SelectValue placeholder={t('pos.paymentMethod')}/></SelectTrigger>
             <SelectContent>
-              <SelectItem value="cash">Cash</SelectItem>
-              <SelectItem value="card">Card</SelectItem>
-              <SelectItem value="wallet">Wallet</SelectItem>
+              <SelectItem value="cash">{t('pos.cash')}</SelectItem>
+              <SelectItem value="card">{t('pos.card')}</SelectItem>
+              <SelectItem value="wallet">{t('pos.wallet')}</SelectItem>
             </SelectContent>
           </Select>
-          <Button className="w-full" onClick={onCheckout}><BadgeDollarSign className="h-4 w-4 mr-2"/>Checkout</Button>
+          <Button className="w-full" onClick={onCheckout}><BadgeDollarSign className="h-4 w-4 mr-2"/>{t('pos.checkout')}</Button>
         </div>
-        <Button variant="outline" className="w-full mt-2"><Printer className="h-4 w-4 mr-2"/>Print Receipt</Button>
+        <Button variant="outline" className="w-full mt-2"><Printer className="h-4 w-4 mr-2"/>{t('pos.printReceipt')}</Button>
       </SheetContent>
     </Sheet>
   );
@@ -555,28 +804,32 @@ const demoAlerts = [
   { id: 2, type: "stock", message: "7 products below minimum stock", severity: "medium" },
 ];
 
-const routes = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutGrid },
-  { key: "pos", label: "POS", icon: ShoppingCart },
-  { key: "products", label: "Products", icon: Package },
-  { key: "inventory", label: "Inventory", icon: Boxes },
-  { key: "purchases", label: "Purchases", icon: Truck },
-  { key: "sales", label: "Sales", icon: Receipt },
-  { key: "suppliers", label: "Suppliers", icon: Users },
-  { key: "companies", label: "Companies", icon: Factory },
-  { key: "customers", label: "Customers", icon: UserCircle2 },
-  { key: "prescriptions", label: "Prescriptions", icon: ClipboardList },
-  { key: "returns", label: "Returns", icon: ArrowLeftRight },
-  { key: "reports", label: "Reports", icon: FileBarChart2 },
-  { key: "accounting", label: "Accounting", icon: BadgeDollarSign },
-  { key: "settings", label: "Settings", icon: Settings },
-  { key: "alerts", label: "Alerts", icon: Bell },
-  { key: "audit", label: "Audit Log", icon: ShieldCheck },
-];
 
 function Sidebar({ current, setCurrent }) {
+  const { t } = useTranslation();
+  const { isRTL } = useLanguage();
+  
+  const routes = [
+    { key: "dashboard", icon: LayoutGrid },
+    { key: "pos", icon: ShoppingCart },
+    { key: "products", icon: Package },
+    { key: "inventory", icon: Boxes },
+    { key: "purchases", icon: Truck },
+    { key: "sales", icon: Receipt },
+    { key: "suppliers", icon: Users },
+    { key: "companies", icon: Factory },
+    { key: "customers", icon: UserCircle2 },
+    { key: "prescriptions", icon: ClipboardList },
+    { key: "returns", icon: ArrowLeftRight },
+    { key: "reports", icon: FileBarChart2 },
+    { key: "accounting", icon: BadgeDollarSign },
+    { key: "settings", icon: Settings },
+    { key: "alerts", icon: Bell },
+    { key: "audit", icon: ShieldCheck },
+  ];
+
   return (
-    <div className="hidden md:flex flex-col w-64 border-r bg-background/50 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <div className={`hidden md:flex flex-col w-64 border-r bg-background/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 ${isRTL ? 'border-l' : 'border-r'}`}>
       <div className="h-16 flex items-center gap-2 px-4 border-b">
         <Pill className="h-6 w-6"/>
         <div className="font-semibold">ZamPharm</div>
@@ -584,21 +837,21 @@ function Sidebar({ current, setCurrent }) {
       </div>
       <div className="p-2 overflow-y-auto">
         {routes.map((r) => (
-          <button key={r.key} onClick={() => setCurrent(r.key)} className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm hover:bg-muted ${current===r.key?"bg-muted font-semibold":""}`}>
+          <button key={r.key} onClick={() => setCurrent(r.key)} className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm hover:bg-muted ${current===r.key?"bg-muted font-semibold":""} ${isRTL ? 'text-right' : 'text-left'}`}>
             <r.icon className="h-4 w-4"/>
-            {r.label}
+            {t(`nav.${r.key}`)}
           </button>
         ))}
       </div>
       <div className="mt-auto p-4">
         <Card>
           <CardContent className="p-4 text-xs text-muted-foreground">
-            <div className="font-medium text-foreground">Branch</div>
+            <div className="font-medium text-foreground">{t('common.branch')}</div>
             <div className="flex items-center gap-2 mt-1">
-              <Store className="h-4 w-4"/> Main Kabul
+              <Store className="h-4 w-4"/> {t('settings.mainKabul')}
             </div>
-            <div className="mt-2">Last sync: 3m ago</div>
-            <Button variant="outline" className="mt-3 w-full"><RefreshCcw className="h-4 w-4 mr-2"/>Sync</Button>
+            <div className="mt-2">{t('sidebar.lastSync', { time: '3m' })}</div>
+            <Button variant="outline" className="mt-3 w-full"><RefreshCcw className="h-4 w-4 mr-2"/>{t('sidebar.sync')}</Button>
           </CardContent>
         </Card>
       </div>
@@ -607,12 +860,15 @@ function Sidebar({ current, setCurrent }) {
 }
 
 function Topbar() {
+  const { t } = useTranslation();
+  const { isRTL } = useLanguage();
+  
   return (
     <div className="h-16 border-b flex items-center justify-between px-4">
       <div className="flex items-center gap-2 w-full md:w-auto">
         <div className="relative w-full md:w-96">
-          <Search className="absolute left-2 top-2.5 h-4 w-4"/>
-          <Input placeholder="Quick search: products, customers, invoices..." className="pl-8"/>
+          <Search className={`absolute ${isRTL ? 'right-2' : 'left-2'} top-2.5 h-4 w-4`}/>
+          <Input placeholder={t('topbar.quickSearch')} className={`${isRTL ? 'pr-8' : 'pl-8'}`}/>
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -621,7 +877,7 @@ function Topbar() {
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon"><Printer className="h-5 w-5"/></Button>
             </TooltipTrigger>
-            <TooltipContent>Print labels</TooltipContent>
+            <TooltipContent>{t('topbar.printLabels')}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
         <DropdownMenu>
@@ -629,28 +885,29 @@ function Topbar() {
             <Button variant="ghost" size="icon"><Bell className="h-5 w-5"/></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
-            <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('topbar.notifications')}</DropdownMenuLabel>
             <DropdownMenuSeparator/>
             {demoAlerts.map((a)=> (
               <DropdownMenuItem key={a.id} className="flex items-start gap-2">
                 <AlertOctagon className="h-4 w-4 mt-1"/>
                 <div>
-                  <div className="text-xs font-medium capitalize">{a.type}</div>
-                  <div className="text-xs text-muted-foreground">{a.message}</div>
+                  <div className="text-xs font-medium capitalize">{t(`alerts.${a.type}`)}</div>
+                  <div className="text-xs text-muted-foreground">{a.type === 'expiry' ? t('alerts.expiringItems', { count: 10 }) : t('alerts.lowStockItems', { count: 7 })}</div>
                 </div>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+        <LanguageSelector />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="gap-2"><UserCircle2 className="h-5 w-5"/> Admin</Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>Profile</DropdownMenuItem>
-            <DropdownMenuItem>Switch branch</DropdownMenuItem>
+            <DropdownMenuItem>{t('topbar.profile')}</DropdownMenuItem>
+            <DropdownMenuItem>{t('topbar.switchBranch')}</DropdownMenuItem>
             <DropdownMenuSeparator/>
-            <DropdownMenuItem>Sign out</DropdownMenuItem>
+            <DropdownMenuItem>{t('topbar.signOut')}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -659,11 +916,18 @@ function Topbar() {
 }
 
 function Dashboard() {
+  const { t } = useTranslation();
+  
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={LayoutGrid} title="Overview" extra={<div className="text-sm text-muted-foreground">Today • {new Date().toDateString()}</div>} />
+      <SectionHeader icon={LayoutGrid} title={t('dashboard.title')} extra={<div className="text-sm text-muted-foreground">{t('dashboard.today')} • {new Date().toDateString()}</div>} />
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {[{t:"Sales",v:"AFN 124,500"},{t:"Invoices",v:"148"},{t:"Low Stock",v:"7"},{t:"Expiring 30d",v:"10"}].map((k,i)=> (
+        {[
+          {t: t('dashboard.sales'), v:"AFN 124,500"},
+          {t: t('dashboard.invoices'), v:"148"},
+          {t: t('dashboard.lowStock'), v:"7"},
+          {t: t('dashboard.expiring'), v:"10"}
+        ].map((k,i)=> (
           <Card key={i}>
             <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{k.t}</CardTitle></CardHeader>
             <CardContent className="text-2xl font-semibold">{k.v}</CardContent>
@@ -673,7 +937,7 @@ function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="md:col-span-2">
           <CardHeader>
-            <CardTitle>Top Products</CardTitle>
+            <CardTitle>{t('dashboard.topProducts')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {demoProducts.map((p)=> (
@@ -685,14 +949,14 @@ function Dashboard() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>Alerts</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t('dashboard.alerts')}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             {demoAlerts.map((a)=> (
               <div key={a.id} className="p-3 rounded-xl border flex items-start gap-2">
                 <AlertOctagon className="h-4 w-4 mt-0.5"/>
                 <div>
-                  <div className="text-sm font-medium capitalize">{a.type}</div>
-                  <div className="text-xs text-muted-foreground">{a.message}</div>
+                  <div className="text-sm font-medium capitalize">{t(`alerts.${a.type}`)}</div>
+                  <div className="text-xs text-muted-foreground">{a.type === 'expiry' ? t('alerts.expiringItems', { count: 10 }) : t('alerts.lowStockItems', { count: 7 })}</div>
                 </div>
               </div>
             ))}
@@ -704,9 +968,14 @@ function Dashboard() {
 }
 
 function POS() {
+  const { t } = useTranslation();
+  const { isRTL } = useLanguage();
   const [cart, setCart] = useState([]);
   const [scan, setScan] = useState("");
   const [scanFeedback, setScanFeedback] = useState(null);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [currentInvoice, setCurrentInvoice] = useState(null);
+  const [customer, setCustomer] = useState({ name: "", phone: "" });
 
   // Barcode scanner integration
   const handleBarcodeScan = (barcode) => {
@@ -717,10 +986,10 @@ function POS() {
     
     if (product) {
       addToCart(product);
-      setScanFeedback({ type: 'success', message: `Added ${product.name}` });
+      setScanFeedback({ type: 'success', message: t('pos.addedToCart', { product: product.name }) });
       setScan(""); // Clear search after successful scan
     } else {
-      setScanFeedback({ type: 'error', message: `Product not found: ${barcode}` });
+      setScanFeedback({ type: 'error', message: t('pos.productNotFound', { barcode }) });
     }
     
     // Clear feedback after 3 seconds
@@ -747,16 +1016,23 @@ function POS() {
     }
   };
 
+  const handleCheckout = () => {
+    const invoiceId = `INV-${Date.now()}`;
+    setCurrentInvoice({ id: invoiceId, date: new Date() });
+    setShowReceipt(true);
+    setCart([]);
+  };
+
   return (
     <div className="p-4 space-y-4">
       <SectionHeader 
         icon={ShoppingCart} 
-        title="Point of Sale" 
-        cta={<POSDrawer cart={cart} setCart={setCart} onCheckout={()=>alert("Checked out (demo)")}/>} 
+        title={t('pos.title')} 
+        cta={<POSDrawer cart={cart} setCart={setCart} onCheckout={handleCheckout}/>} 
         extra={
           <div className="flex items-center gap-3">
             <ScannerStatus isScanning={isScanning} mode="normal" />
-            <div className="text-sm text-muted-foreground">Scan barcode or search</div>
+            <div className="text-sm text-muted-foreground">{t('pos.scanPrompt')}</div>
           </div>
         } 
       />
@@ -787,15 +1063,15 @@ function POS() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
-                <ScanLine className="absolute left-2 top-2.5 h-4 w-4" />
+                <ScanLine className={`absolute ${isRTL ? 'right-2' : 'left-2'} top-2.5 h-4 w-4`} />
                 <Input 
                   value={scan} 
                   onChange={(e) => handleScanInputChange(e.target.value)} 
-                  placeholder="Scan barcode or type product name / SKU"
-                  className="pl-8"
+                  placeholder={t('pos.scanPrompt')}
+                  className={`${isRTL ? 'pr-8' : 'pl-8'}`}
                 />
               </div>
-              <Button onClick={() => setScan("")}>Clear</Button>
+              <Button onClick={() => setScan("")}>{t('common.clear')}</Button>
             </div>
           </CardHeader>
           <CardContent>
@@ -809,10 +1085,10 @@ function POS() {
                   <CardContent className="p-4">
                     <div className="font-medium">{p.name}</div>
                     <div className="text-xs text-muted-foreground">{p.sku} • {p.form} • {p.company}</div>
-                    <div className="text-xs text-muted-foreground mt-1">Barcode: {p.barcode}</div>
+                    <div className="text-xs text-muted-foreground mt-1">{t('common.barcode')}: {p.barcode}</div>
                     <div className="flex items-center justify-between mt-3">
                       <div className="text-lg font-semibold">{p.price} AFN</div>
-                      <Button size="sm" onClick={()=>addToCart(p)}><Plus className="h-4 w-4 mr-1"/>Add</Button>
+                      <Button size="sm" onClick={()=>addToCart(p)}><Plus className="h-4 w-4 mr-1"/>{t('common.add')}</Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -821,22 +1097,40 @@ function POS() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>Customer</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t('pos.customer')}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <Input placeholder="Name (optional)"/>
-            <Input placeholder="Phone"/>
+            <Input 
+              placeholder={t('pos.customerName')}
+              value={customer.name}
+              onChange={(e) => setCustomer(prev => ({...prev, name: e.target.value}))}
+            />
+            <Input 
+              placeholder={t('pos.customerPhone')}
+              value={customer.phone}
+              onChange={(e) => setCustomer(prev => ({...prev, phone: e.target.value}))}
+            />
             <Select>
-              <SelectTrigger><SelectValue placeholder="Discount"/></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder={t('pos.discount')}/></SelectTrigger>
               <SelectContent>
-                <SelectItem value="0">None</SelectItem>
+                <SelectItem value="0">{t('common.no')}</SelectItem>
                 <SelectItem value="5">5%</SelectItem>
                 <SelectItem value="10">10%</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline"><CreditCard className="h-4 w-4 mr-2"/>Add Payment Method</Button>
+            <Button variant="outline"><CreditCard className="h-4 w-4 mr-2"/>{t('pos.paymentMethod')}</Button>
           </CardContent>
         </Card>
       </div>
+
+      {/* Dual Language Receipt Dialog */}
+      {showReceipt && (
+        <DualLanguageReceipt 
+          cart={cart} 
+          customer={customer}
+          invoiceData={currentInvoice}
+          onClose={() => setShowReceipt(false)}
+        />
+      )}
     </div>
   );
 }
@@ -2404,73 +2698,153 @@ function Accounting() {
 }
 
 function SettingsPage() {
+  const { t } = useTranslation();
+  const { language, direction, isRTL, invoiceLanguage, changeLanguage, setDirection, setInvoiceLanguage, getLanguageName } = useLanguage();
+  const [feedbackMessage, setFeedbackMessage] = useState(null);
+
+  const handleLanguageChange = (lng) => {
+    changeLanguage(lng);
+    setFeedbackMessage(t('settings.languageChanged', { language: getLanguageName(lng) }));
+    setTimeout(() => setFeedbackMessage(null), 3000);
+  };
+
+  const handleDirectionChange = (dir) => {
+    setDirection(dir);
+    setFeedbackMessage(t('settings.directionChanged', { direction: dir === 'rtl' ? t('settings.rightToLeft') : t('settings.leftToRight') }));
+    setTimeout(() => setFeedbackMessage(null), 3000);
+  };
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={Settings} title="Settings" />
+      <SectionHeader icon={Settings} title={t('settings.title')} />
+      
+      {/* Feedback Message */}
+      {feedbackMessage && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          className="p-3 rounded-lg border bg-green-50 border-green-200 text-green-800 flex items-center gap-2"
+        >
+          <Check className="h-4 w-4" />
+          <span className="text-sm font-medium">{feedbackMessage}</span>
+        </motion.div>
+      )}
+
       <div className="grid md:grid-cols-2 gap-4">
         <Card>
-          <CardHeader><CardTitle>Organization</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t('settings.organization')}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <Input placeholder="Pharmacy Name" defaultValue="ZamPharm"/>
-            <Input placeholder="TIN / Tax ID"/>
-            <Input placeholder="Address"/>
+            <Input placeholder={t('settings.pharmacyName')} defaultValue="ZamPharm"/>
+            <Input placeholder={t('settings.tinTaxId')}/>
+            <Input placeholder={t('common.address')}/>
             <div className="flex items-center justify-between">
-              <Label>Enable VAT</Label>
+              <Label>{t('settings.enableVat')}</Label>
               <Switch defaultChecked/>
             </div>
-            <Button><Save className="h-4 w-4 mr-2"/>Save</Button>
+            <Button><Save className="h-4 w-4 mr-2"/>{t('common.save')}</Button>
           </CardContent>
         </Card>
+
         <Card>
-          <CardHeader><CardTitle>Users & Roles</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t('settings.language')}</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>{t('settings.selectLanguage')}</Label>
+              <Select value={language} onValueChange={handleLanguageChange}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="fa">فارسی (Dari)</SelectItem>
+                  <SelectItem value="ps">پښتو (Pashto)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>{t('settings.layoutDirection')}</Label>
+              <Select value={direction} onValueChange={handleDirectionChange}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ltr">{t('settings.leftToRight')}</SelectItem>
+                  <SelectItem value="rtl">{t('settings.rightToLeft')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>{t('settings.invoiceLanguage')}</Label>
+              <Select value={invoiceLanguage} onValueChange={setInvoiceLanguage}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="en">{t('settings.englishOnly')}</SelectItem>
+                  <SelectItem value="local">{t('settings.localOnly', { language: getLanguageName(language) })}</SelectItem>
+                  <SelectItem value="dual">{t('settings.dualLanguage', { language: getLanguageName(language) })}</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="text-xs text-muted-foreground">
+                {t('receipt.regulatoryInfo')}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>{t('settings.usersRoles')}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-medium">Cashier</div>
-                <div className="text-xs text-muted-foreground">POS, view stock</div>
+                <div className="text-sm font-medium">{t('settings.cashier')}</div>
+                <div className="text-xs text-muted-foreground">{t('settings.cashierDesc')}</div>
               </div>
               <Checkbox defaultChecked/>
             </div>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-medium">Inventory Manager</div>
-                <div className="text-xs text-muted-foreground">Stock & adjustments</div>
+                <div className="text-sm font-medium">{t('settings.inventoryManager')}</div>
+                <div className="text-xs text-muted-foreground">{t('settings.inventoryManagerDesc')}</div>
               </div>
               <Checkbox defaultChecked/>
             </div>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-medium">Admin</div>
-                <div className="text-xs text-muted-foreground">All access</div>
+                <div className="text-sm font-medium">{t('settings.admin')}</div>
+                <div className="text-xs text-muted-foreground">{t('settings.adminDesc')}</div>
               </div>
               <Checkbox defaultChecked/>
             </div>
-            <Button variant="outline">Manage Roles</Button>
+            <Button variant="outline">{t('settings.manageRoles')}</Button>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>Branches</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t('settings.branches')}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center gap-2">
-              <Input placeholder="New Branch Name"/>
-              <Button><Plus className="h-4 w-4 mr-1"/>Add</Button>
+              <Input placeholder={t('settings.newBranchName')}/>
+              <Button><Plus className="h-4 w-4 mr-1"/>{t('common.add')}</Button>
             </div>
-            <div className="text-sm text-muted-foreground">Main Kabul • Active</div>
+            <div className="text-sm text-muted-foreground">{t('settings.mainKabul')} • {t('common.active')}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>Integrations</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t('settings.integrations')}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-sm">Barcode Printer</div>
+              <div className="text-sm">{t('settings.barcodePrinter')}</div>
               <Switch defaultChecked/>
             </div>
             <div className="flex items-center justify-between">
-              <div className="text-sm">Thermal Receipt Printer</div>
+              <div className="text-sm">{t('settings.thermalReceiptPrinter')}</div>
               <Switch defaultChecked/>
             </div>
             <div className="flex items-center justify-between">
-              <div className="text-sm">SMS Gateway</div>
+              <div className="text-sm">{t('settings.smsGateway')}</div>
               <Switch/>
             </div>
           </CardContent>
@@ -2542,10 +2916,11 @@ const RouteView = ({ route }) => {
 function App() {
   const [route, setRoute] = useState("dashboard");
   const { isOnline } = useNetworkStatus();
+  const { isRTL } = useLanguage();
   
   return (
-    <div className="h-screen w-full bg-background text-foreground">
-      <div className="flex h-full">
+    <div className={`h-screen w-full bg-background text-foreground ${isRTL ? 'rtl' : 'ltr'}`}>
+      <div className={`flex h-full ${isRTL ? 'flex-row-reverse' : 'flex-row'}`}>
         <Sidebar current={route} setCurrent={setRoute}/>
         <div className="flex-1 flex flex-col">
           <Topbar/>
@@ -2559,11 +2934,11 @@ function App() {
       
       {/* Offline indicator overlay */}
       {!isOnline && (
-        <div className="fixed bottom-4 left-4 right-4 md:left-72 md:right-auto md:max-w-sm z-50">
+        <div className={`fixed bottom-4 ${isRTL ? 'right-4 left-4 md:right-72 md:left-auto' : 'left-4 right-4 md:left-72 md:right-auto'} md:max-w-sm z-50`}>
           <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-orange-100 border-l-4 border-orange-500 p-3 rounded-lg shadow-lg"
+            className={`bg-orange-100 ${isRTL ? 'border-r-4' : 'border-l-4'} border-orange-500 p-3 rounded-lg shadow-lg`}
           >
             <div className="flex items-center gap-2">
               <WifiOff className="h-5 w-5 text-orange-600" />
