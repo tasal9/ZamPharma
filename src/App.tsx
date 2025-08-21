@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutGrid,
@@ -37,6 +37,9 @@ import {
   Printer,
   Store,
   RefreshCcw,
+  ScanLine,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react";
 
 // shadcn/ui components
@@ -168,6 +171,82 @@ function DataTable({ columns, data, onEdit, onDelete, onView, pageSize = 8 }) {
   );
 }
 
+// Barcode Scanner Hook - listens for scanner input
+function useBarcodeScanner(onScan, options = {}) {
+  const [lastScan, setLastScan] = useState("");
+  const [isScanning, setIsScanning] = useState(false);
+  const scanTimeout = useRef(null);
+  const scanBuffer = useRef("");
+  const { 
+    minLength = 6, 
+    maxLength = 20, 
+    scanDelay = 100,
+    enabled = true 
+  } = options;
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const handleKeyDown = (e) => {
+      // Ignore input if user is typing in a form field
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      
+      // Clear previous timeout
+      if (scanTimeout.current) {
+        clearTimeout(scanTimeout.current);
+      }
+
+      // Start scanning indicator
+      if (!isScanning) {
+        setIsScanning(true);
+        scanBuffer.current = "";
+      }
+
+      // Add character to buffer (ignore special keys)
+      if (e.key.length === 1) {
+        scanBuffer.current += e.key;
+      }
+
+      // Set timeout to process scan
+      scanTimeout.current = setTimeout(() => {
+        const scanned = scanBuffer.current.trim();
+        
+        if (scanned.length >= minLength && scanned.length <= maxLength) {
+          setLastScan(scanned);
+          onScan(scanned);
+        }
+        
+        // Reset
+        scanBuffer.current = "";
+        setIsScanning(false);
+      }, scanDelay);
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (scanTimeout.current) {
+        clearTimeout(scanTimeout.current);
+      }
+    };
+  }, [onScan, minLength, maxLength, scanDelay, enabled, isScanning]);
+
+  return { lastScan, isScanning };
+}
+
+// Scanner Status Indicator
+function ScannerStatus({ isScanning, lastScan }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className={`w-2 h-2 rounded-full ${isScanning ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`} />
+      <span className="text-xs text-muted-foreground">
+        {isScanning ? 'Scanning...' : lastScan ? `Last: ${lastScan}` : 'Ready'}
+      </span>
+    </div>
+  );
+}
+
 function SectionHeader({ icon: Icon, title, cta, extra }) {
   return (
     <div className="flex items-center justify-between mb-4">
@@ -284,9 +363,9 @@ function EntityForm({ open, onOpenChange, title, fields, onSubmit, defaults = {}
 }
 
 const demoProducts = [
-  { id: 1, sku: "PCM-001", name: "Paracetamol 500mg", form: "Tablet", company: "ACME Pharma", unit: "Strip", price: 40, stock: 220, min: 50, tax: 5, batch: "B23A", expiry: "2026-02-01" },
-  { id: 2, sku: "AMX-250", name: "Amoxicillin 250mg", form: "Capsule", company: "HealthCo", unit: "Bottle", price: 180, stock: 36, min: 20, tax: 5, batch: "AMX92", expiry: "2025-12-15" },
-  { id: 3, sku: "ORS-001", name: "ORS Sachet", form: "Sachet", company: "Zed Labs", unit: "Box", price: 20, stock: 500, min: 100, tax: 0, batch: "ORS77", expiry: "2027-05-01" },
+  { id: 1, sku: "PCM-001", name: "Paracetamol 500mg", form: "Tablet", company: "ACME Pharma", unit: "Strip", price: 40, stock: 220, min: 50, tax: 5, batch: "B23A", expiry: "2026-02-01", barcode: "123456789012" },
+  { id: 2, sku: "AMX-250", name: "Amoxicillin 250mg", form: "Capsule", company: "HealthCo", unit: "Bottle", price: 180, stock: 36, min: 20, tax: 5, batch: "AMX92", expiry: "2025-12-15", barcode: "234567890123" },
+  { id: 3, sku: "ORS-001", name: "ORS Sachet", form: "Sachet", company: "Zed Labs", unit: "Box", price: 20, stock: 500, min: 100, tax: 0, batch: "ORS77", expiry: "2027-05-01", barcode: "345678901234" },
 ];
 
 const demoSuppliers = [
@@ -460,6 +539,28 @@ function Dashboard() {
 function POS() {
   const [cart, setCart] = useState([]);
   const [scan, setScan] = useState("");
+  const [scanFeedback, setScanFeedback] = useState(null);
+
+  // Barcode scanner integration
+  const handleBarcodeScan = (barcode) => {
+    const product = demoProducts.find(p => 
+      p.barcode === barcode || 
+      p.sku.toLowerCase() === barcode.toLowerCase()
+    );
+    
+    if (product) {
+      addToCart(product);
+      setScanFeedback({ type: 'success', message: `Added ${product.name}` });
+      setScan(""); // Clear search after successful scan
+    } else {
+      setScanFeedback({ type: 'error', message: `Product not found: ${barcode}` });
+    }
+    
+    // Clear feedback after 3 seconds
+    setTimeout(() => setScanFeedback(null), 3000);
+  };
+
+  const { isScanning } = useBarcodeScanner(handleBarcodeScan, { enabled: true });
 
   const addToCart = (p) => {
     setCart((c) => {
@@ -469,24 +570,79 @@ function POS() {
     });
   };
 
+  // Handle manual search/scan input
+  const handleScanInputChange = (value) => {
+    setScan(value);
+    
+    // Auto-search if barcode format detected (12+ digits)
+    if (value.length >= 12 && /^\d+$/.test(value)) {
+      handleBarcodeScan(value);
+    }
+  };
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={ShoppingCart} title="Point of Sale" cta={<POSDrawer cart={cart} setCart={setCart} onCheckout={()=>alert("Checked out (demo)")}/>} extra={<div className="text-sm text-muted-foreground">Scan barcode or search</div>} />
+      <SectionHeader 
+        icon={ShoppingCart} 
+        title="Point of Sale" 
+        cta={<POSDrawer cart={cart} setCart={setCart} onCheckout={()=>alert("Checked out (demo)")}/>} 
+        extra={
+          <div className="flex items-center gap-3">
+            <ScannerStatus isScanning={isScanning} />
+            <div className="text-sm text-muted-foreground">Scan barcode or search</div>
+          </div>
+        } 
+      />
+      
+      {/* Scan Feedback */}
+      {scanFeedback && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          className={`p-3 rounded-lg border flex items-center gap-2 ${
+            scanFeedback.type === 'success' 
+              ? 'bg-green-50 border-green-200 text-green-800' 
+              : 'bg-red-50 border-red-200 text-red-800'
+          }`}
+        >
+          {scanFeedback.type === 'success' ? (
+            <CheckCircle className="h-4 w-4" />
+          ) : (
+            <AlertCircle className="h-4 w-4" />
+          )}
+          <span className="text-sm font-medium">{scanFeedback.message}</span>
+        </motion.div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="md:col-span-2">
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Input value={scan} onChange={(e)=>setScan(e.target.value)} placeholder="Scan or type product name / SKU"/>
-              <Button onClick={()=>setScan("")}>Clear</Button>
+              <div className="relative flex-1">
+                <ScanLine className="absolute left-2 top-2.5 h-4 w-4" />
+                <Input 
+                  value={scan} 
+                  onChange={(e) => handleScanInputChange(e.target.value)} 
+                  placeholder="Scan barcode or type product name / SKU"
+                  className="pl-8"
+                />
+              </div>
+              <Button onClick={() => setScan("")}>Clear</Button>
             </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {demoProducts.filter(p=> p.name.toLowerCase().includes(scan.toLowerCase()) || p.sku.toLowerCase().includes(scan.toLowerCase())).map((p)=> (
+              {demoProducts.filter(p=> 
+                p.name.toLowerCase().includes(scan.toLowerCase()) || 
+                p.sku.toLowerCase().includes(scan.toLowerCase()) ||
+                p.barcode.includes(scan)
+              ).map((p)=> (
                 <Card key={p.id} className="hover:shadow">
                   <CardContent className="p-4">
                     <div className="font-medium">{p.name}</div>
                     <div className="text-xs text-muted-foreground">{p.sku} • {p.form} • {p.company}</div>
+                    <div className="text-xs text-muted-foreground mt-1">Barcode: {p.barcode}</div>
                     <div className="flex items-center justify-between mt-3">
                       <div className="text-lg font-semibold">{p.price} AFN</div>
                       <Button size="sm" onClick={()=>addToCart(p)}><Plus className="h-4 w-4 mr-1"/>Add</Button>
@@ -521,6 +677,8 @@ function POS() {
 function Products() {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState(demoProducts);
+  const [scanFeedback, setScanFeedback] = useState(null);
+  
   const cols = [
     { key: "sku", label: "SKU" },
     { key: "name", label: "Product" },
@@ -528,11 +686,14 @@ function Products() {
     { key: "unit", label: "Unit" },
     { key: "price", label: "MRP", render: (v)=> `${v} AFN` },
     { key: "stock", label: "Stock" },
+    { key: "barcode", label: "Barcode" },
     { key: "expiry", label: "Expiry" },
   ];
+  
   const fields = [
     { name: "sku", label: "SKU" },
     { name: "name", label: "Name", full: true },
+    { name: "barcode", label: "Barcode", full: true },
     { name: "form", label: "Form" },
     { name: "company", label: "Company" },
     { name: "unit", label: "Unit" },
@@ -543,9 +704,74 @@ function Products() {
     { name: "expiry", label: "Expiry", type: "date" },
     { name: "desc", label: "Description", type: "textarea", full: true },
   ];
+
+  // Barcode scanner for quick product lookup
+  const handleBarcodeScan = (barcode) => {
+    const product = rows.find(p => 
+      p.barcode === barcode || 
+      p.sku.toLowerCase() === barcode.toLowerCase()
+    );
+    
+    if (product) {
+      setScanFeedback({ type: 'success', message: `Found: ${product.name}`, product });
+    } else {
+      setScanFeedback({ type: 'error', message: `Product not found: ${barcode}` });
+    }
+    
+    // Clear feedback after 5 seconds
+    setTimeout(() => setScanFeedback(null), 5000);
+  };
+
+  const { isScanning } = useBarcodeScanner(handleBarcodeScan, { enabled: true });
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={Package} title="Products" cta={<Button onClick={()=>setOpen(true)}><Plus className="h-4 w-4 mr-2"/>New Product</Button>} extra={<Badge variant="secondary">Catalog: {rows.length}</Badge>} />
+      <SectionHeader 
+        icon={Package} 
+        title="Products" 
+        cta={<Button onClick={()=>setOpen(true)}><Plus className="h-4 w-4 mr-2"/>New Product</Button>} 
+        extra={
+          <div className="flex items-center gap-3">
+            <ScannerStatus isScanning={isScanning} />
+            <Badge variant="secondary">Catalog: {rows.length}</Badge>
+          </div>
+        } 
+      />
+
+      {/* Scan Feedback */}
+      {scanFeedback && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          className={`p-4 rounded-lg border flex items-start gap-3 ${
+            scanFeedback.type === 'success' 
+              ? 'bg-green-50 border-green-200' 
+              : 'bg-red-50 border-red-200'
+          }`}
+        >
+          <div className="flex-shrink-0">
+            {scanFeedback.type === 'success' ? (
+              <CheckCircle className="h-5 w-5 text-green-600" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-red-600" />
+            )}
+          </div>
+          <div className="flex-1">
+            <div className={`text-sm font-medium ${scanFeedback.type === 'success' ? 'text-green-800' : 'text-red-800'}`}>
+              {scanFeedback.message}
+            </div>
+            {scanFeedback.product && (
+              <div className="mt-2 p-3 bg-white rounded border">
+                <div className="font-medium">{scanFeedback.product.name}</div>
+                <div className="text-sm text-muted-foreground">{scanFeedback.product.sku} • Stock: {scanFeedback.product.stock}</div>
+                <div className="text-sm text-muted-foreground">Barcode: {scanFeedback.product.barcode}</div>
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
       <Tabs defaultValue="list">
         <TabsList>
           <TabsTrigger value="list">List</TabsTrigger>
@@ -627,9 +853,101 @@ function Companies() {
 }
 
 function Inventory() {
+  const [scanFeedback, setScanFeedback] = useState(null);
+  const [quickStockMode, setQuickStockMode] = useState(false);
+
+  // Barcode scanner for inventory management
+  const handleBarcodeScan = (barcode) => {
+    const product = demoProducts.find(p => 
+      p.barcode === barcode || 
+      p.sku.toLowerCase() === barcode.toLowerCase()
+    );
+    
+    if (product) {
+      setScanFeedback({ 
+        type: 'success', 
+        message: `Stock check: ${product.name}`, 
+        product,
+        action: quickStockMode ? 'Quick count mode active' : 'View details'
+      });
+    } else {
+      setScanFeedback({ type: 'error', message: `Product not found: ${barcode}` });
+    }
+    
+    // Clear feedback after 5 seconds
+    setTimeout(() => setScanFeedback(null), 5000);
+  };
+
+  const { isScanning } = useBarcodeScanner(handleBarcodeScan, { enabled: true });
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={Boxes} title="Inventory" />
+      <SectionHeader 
+        icon={Boxes} 
+        title="Inventory" 
+        extra={
+          <div className="flex items-center gap-3">
+            <ScannerStatus isScanning={isScanning} />
+            <div className="flex items-center gap-2">
+              <Switch 
+                checked={quickStockMode} 
+                onCheckedChange={setQuickStockMode}
+                id="quick-stock"
+              />
+              <Label htmlFor="quick-stock" className="text-sm">Quick count</Label>
+            </div>
+          </div>
+        }
+      />
+
+      {/* Scan Feedback */}
+      {scanFeedback && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          className={`p-4 rounded-lg border flex items-start gap-3 ${
+            scanFeedback.type === 'success' 
+              ? 'bg-blue-50 border-blue-200' 
+              : 'bg-red-50 border-red-200'
+          }`}
+        >
+          <div className="flex-shrink-0">
+            {scanFeedback.type === 'success' ? (
+              <CheckCircle className="h-5 w-5 text-blue-600" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-red-600" />
+            )}
+          </div>
+          <div className="flex-1">
+            <div className={`text-sm font-medium ${scanFeedback.type === 'success' ? 'text-blue-800' : 'text-red-800'}`}>
+              {scanFeedback.message}
+            </div>
+            {scanFeedback.product && (
+              <div className="mt-2 p-3 bg-white rounded border">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="font-medium">{scanFeedback.product.name}</div>
+                    <div className="text-sm text-muted-foreground">{scanFeedback.product.sku}</div>
+                    <div className="text-sm text-muted-foreground">Barcode: {scanFeedback.product.barcode}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-semibold">{scanFeedback.product.stock}</div>
+                    <div className="text-xs text-muted-foreground">Current stock</div>
+                  </div>
+                </div>
+                {quickStockMode && (
+                  <div className="mt-3 flex gap-2">
+                    <Input type="number" placeholder="Actual count" className="w-32" />
+                    <Button size="sm">Update</Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
       <Tabs defaultValue="stock">
         <TabsList>
           <TabsTrigger value="stock">Stock</TabsTrigger>
@@ -637,7 +955,7 @@ function Inventory() {
           <TabsTrigger value="expiry">Expiry</TabsTrigger>
         </TabsList>
         <TabsContent value="stock" className="mt-4">
-          <DataTable columns={[{key:"sku",label:"SKU"},{key:"name",label:"Product"},{key:"stock",label:"Qty"},{key:"min",label:"Reorder"},{key:"batch",label:"Batch"},{key:"expiry",label:"Expiry"}]} data={demoProducts} />
+          <DataTable columns={[{key:"sku",label:"SKU"},{key:"name",label:"Product"},{key:"stock",label:"Qty"},{key:"min",label:"Reorder"},{key:"batch",label:"Batch"},{key:"barcode",label:"Barcode"},{key:"expiry",label:"Expiry"}]} data={demoProducts} />
         </TabsContent>
         <TabsContent value="movements" className="mt-4">
           <DataTable columns={[{key:"id",label:"#"},{key:"product",label:"Product"},{key:"qty",label:"Qty"},{key:"type",label:"Type"},{key:"at",label:"Date"}]} data={[
