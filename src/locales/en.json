@@ -74,6 +74,9 @@
     "returns": "Returns",
     "reports": "Reports",
     "accounting": "Accounting",
+    "branches": "Branches",
+    "users": "Users",
+    "labels": "Print Labels",
     "settings": "Settings",
     "alerts": "Alerts",
     "audit": "Audit Log"
