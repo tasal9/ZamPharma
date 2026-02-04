@@ -1258,6 +1258,10 @@ function POS() {
   const [showReceipt, setShowReceipt] = useState(false);
   const [currentInvoice, setCurrentInvoice] = useState(null);
   const [customer, setCustomer] = useState({ name: "", phone: "" });
+  const [expiryWarning, setExpiryWarning] = useState(null);
+  const [pendingProduct, setPendingProduct] = useState(null);
+  const { addToQueue } = useOfflineQueue();
+  const { isOnline } = useNetworkStatus();
 
   // Barcode scanner integration
   const handleBarcodeScan = (barcode) => {
@@ -1267,6 +1271,30 @@ function POS() {
     );
     
     if (product) {
+      // Check expiry before adding
+      const expiryStatus = checkProductExpiry(product);
+      
+      if (expiryStatus.status === 'expired') {
+        setScanFeedback({ type: 'error', message: t('expiryWarning.expired') });
+        setExpiryWarning({
+          product,
+          status: 'expired',
+          message: t('expiryWarning.cannotSell')
+        });
+        return;
+      }
+      
+      if (expiryStatus.status === 'expiringSoon') {
+        setPendingProduct(product);
+        setExpiryWarning({
+          product,
+          status: 'expiringSoon',
+          daysUntil: expiryStatus.daysUntil,
+          message: t('expiryWarning.expiringSoon', { date: product.expiry })
+        });
+        return;
+      }
+      
       addToCart(product);
       setScanFeedback({ type: 'success', message: t('pos.addedToCart', { product: product.name }) });
       setScan(""); // Clear search after successful scan
@@ -1288,6 +1316,21 @@ function POS() {
     });
   };
 
+  const confirmExpiryProduct = () => {
+    if (pendingProduct) {
+      addToCart(pendingProduct);
+      setScanFeedback({ type: 'success', message: t('pos.addedToCart', { product: pendingProduct.name }) });
+      setScan("");
+    }
+    setExpiryWarning(null);
+    setPendingProduct(null);
+  };
+
+  const cancelExpiryProduct = () => {
+    setExpiryWarning(null);
+    setPendingProduct(null);
+  };
+
   // Handle manual search/scan input
   const handleScanInputChange = (value) => {
     setScan(value);
@@ -1301,8 +1344,31 @@ function POS() {
   const handleCheckout = () => {
     const invoiceId = `INV-${Date.now()}`;
     setCurrentInvoice({ id: invoiceId, date: new Date() });
+    
+    // If offline, add to queue
+    if (!isOnline) {
+      addToQueue('SALE', { 
+        invoiceId, 
+        cart: [...cart], 
+        customer,
+        total: cart.reduce((s, i) => s + i.qty * i.price, 0)
+      });
+    }
+    
     setShowReceipt(true);
     setCart([]);
+  };
+
+  // Check for expired items in product display
+  const getProductExpiryBadge = (product) => {
+    const status = checkProductExpiry(product);
+    if (status.status === 'expired') {
+      return <Badge variant="destructive">Expired</Badge>;
+    }
+    if (status.status === 'expiringSoon') {
+      return <Badge variant="secondary">{status.daysUntil}d left</Badge>;
+    }
+    return null;
   };
 
   return (
@@ -1318,6 +1384,49 @@ function POS() {
           </div>
         } 
       />
+
+      {/* Expiry Warning Dialog */}
+      <Dialog open={!!expiryWarning} onOpenChange={() => { setExpiryWarning(null); setPendingProduct(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
+              <AlertTriangle className="h-5 w-5"/>
+              {t('expiryWarning.title')}
+            </DialogTitle>
+          </DialogHeader>
+          {expiryWarning && (
+            <div className="space-y-4">
+              <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <div className="font-medium">{expiryWarning.product?.name}</div>
+                <div className="text-sm text-muted-foreground">
+                  Batch: {expiryWarning.product?.batch} • Expiry: {expiryWarning.product?.expiry}
+                </div>
+                <div className="mt-2 text-orange-700">{expiryWarning.message}</div>
+              </div>
+              
+              {expiryWarning.status === 'expired' ? (
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1" onClick={cancelExpiryProduct}>
+                    {t('common.close')}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">{t('expiryWarning.confirmSale')}</div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1" onClick={cancelExpiryProduct}>
+                      <Ban className="h-4 w-4 mr-2"/>{t('expiryWarning.cancel')}
+                    </Button>
+                    <Button className="flex-1" onClick={confirmExpiryProduct}>
+                      <Check className="h-4 w-4 mr-2"/>{t('expiryWarning.proceed')}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       
       {/* Scan Feedback */}
       {scanFeedback && (
