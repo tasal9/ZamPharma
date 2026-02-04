@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTranslation } from 'react-i18next';
 import './i18n';
@@ -48,6 +48,27 @@ import {
   CloudOff,
   Zap,
   Languages,
+  Lock,
+  Unlock,
+  Key,
+  UserPlus,
+  LogOut,
+  Shield,
+  Activity,
+  Clock,
+  MapPin,
+  Tag,
+  QrCode,
+  ArrowRightLeft,
+  AlertTriangle,
+  FileDown,
+  FileSpreadsheet,
+  Stethoscope,
+  Clipboard,
+  DollarSign,
+  Ban,
+  RotateCcw,
+  History,
 } from "lucide-react";
 import { useKV } from '@github/spark/hooks';
 
@@ -803,6 +824,264 @@ const demoAlerts = [
   { id: 1, type: "expiry", message: "10 items expiring within 30 days", severity: "high" },
   { id: 2, type: "stock", message: "7 products below minimum stock", severity: "medium" },
 ];
+
+// New demo data for remaining features
+const demoUsers = [
+  { id: 1, username: "admin", name: "System Admin", role: "admin", email: "admin@zampharm.af", lastLogin: "2026-02-04 09:30", status: "active", permissions: ["all"] },
+  { id: 2, username: "ahmad", name: "Ahmad Khan", role: "manager", email: "ahmad@zampharm.af", lastLogin: "2026-02-04 08:15", status: "active", permissions: ["pos_access", "inventory_manage", "reports_view"] },
+  { id: 3, username: "fatima", name: "Fatima Rahimi", role: "cashier", email: "fatima@zampharm.af", lastLogin: "2026-02-03 17:00", status: "active", permissions: ["pos_access"] },
+  { id: 4, username: "karim", name: "Karim Ahmadi", role: "inventory", email: "karim@zampharm.af", lastLogin: "2026-02-04 07:45", status: "active", permissions: ["inventory_manage", "products_manage"] },
+];
+
+const demoAuditLogs = [
+  { id: 1, userId: 1, username: "admin", action: "LOGIN", details: "Successful login", timestamp: "2026-02-04 09:30:00", ipAddress: "192.168.1.100" },
+  { id: 2, userId: 2, username: "ahmad", action: "SALE", details: "Invoice INV-5502 created - AFN 1,250", timestamp: "2026-02-04 10:15:00", ipAddress: "192.168.1.101" },
+  { id: 3, userId: 3, username: "fatima", action: "STOCK_ADJUSTMENT", details: "Paracetamol 500mg - Qty adjusted by -5", timestamp: "2026-02-04 11:00:00", ipAddress: "192.168.1.102" },
+  { id: 4, userId: 1, username: "admin", action: "USER_CREATED", details: "New user 'karim' created", timestamp: "2026-02-04 08:00:00", ipAddress: "192.168.1.100" },
+];
+
+const demoPurchases = [
+  { id: 1, grnNumber: "GRN-1021", supplier: "Kabul Med Distributors", supplierInvoice: "KMD-2026-445", invoiceDate: "2026-02-01", receivedDate: "2026-02-03", items: 12, totalAmount: 78500, paymentStatus: "partial", paidAmount: 50000 },
+  { id: 2, grnNumber: "GRN-1022", supplier: "Herat Pharma Supply", supplierInvoice: "HPS-887", invoiceDate: "2026-01-28", receivedDate: "2026-01-30", items: 8, totalAmount: 45000, paymentStatus: "paid", paidAmount: 45000 },
+  { id: 3, grnNumber: "GRN-1023", supplier: "Kabul Med Distributors", supplierInvoice: "KMD-2026-450", invoiceDate: "2026-02-03", receivedDate: "2026-02-04", items: 5, totalAmount: 32000, paymentStatus: "unpaid", paidAmount: 0 },
+];
+
+const demoPurchaseItems = [
+  { id: 1, purchaseId: 1, productId: 1, productName: "Paracetamol 500mg", quantity: 500, unitCost: 35, totalCost: 17500, batch: "B24A", expiry: "2027-02-01" },
+  { id: 2, purchaseId: 1, productId: 2, productName: "Amoxicillin 250mg", quantity: 200, unitCost: 150, totalCost: 30000, batch: "AMX95", expiry: "2026-12-15" },
+];
+
+const demoCustomers = [
+  { id: 1, name: "Walk-in", phone: "-", email: "-", address: "-", balance: 0, creditLimit: 0, totalPurchases: 125000, lastPurchase: "2026-02-04" },
+  { id: 2, name: "Dr. Ahmad Clinic", phone: "0700 000 001", email: "clinic@ahmad.af", address: "Karte-4, Kabul", balance: 12500, creditLimit: 50000, totalPurchases: 450000, lastPurchase: "2026-02-03" },
+  { id: 3, name: "Rahimi Hospital", phone: "0700 000 002", email: "pharmacy@rahimi.af", address: "Shahr-e-Naw, Kabul", balance: 35000, creditLimit: 100000, totalPurchases: 890000, lastPurchase: "2026-02-01" },
+  { id: 4, name: "Mohammad Akbar", phone: "0700 000 003", email: "akbar@email.af", address: "Taimani, Kabul", balance: 500, creditLimit: 5000, totalPurchases: 8500, lastPurchase: "2026-01-28" },
+];
+
+const demoCustomerPayments = [
+  { id: 1, customerId: 2, amount: 25000, method: "cash", date: "2026-02-01", reference: "PAY-001" },
+  { id: 2, customerId: 3, amount: 50000, method: "bank", date: "2026-01-30", reference: "PAY-002" },
+];
+
+const demoPrescriptions = [
+  { id: 1, rxNumber: "RX-1012", doctorName: "Dr. Khan", patientName: "Zabi Ahmad", patientPhone: "0700 111 222", diagnosis: "Fever & Cold", date: "2026-02-04", status: "pending", medications: [
+    { productId: 1, productName: "Paracetamol 500mg", dosage: "500mg", frequency: "3x daily", duration: "5 days", quantity: 15 },
+    { productId: 2, productName: "Amoxicillin 250mg", dosage: "250mg", frequency: "2x daily", duration: "7 days", quantity: 14 }
+  ]},
+  { id: 2, rxNumber: "RX-1013", doctorName: "Dr. Rahimi", patientName: "Fatima Karimi", patientPhone: "0700 333 444", diagnosis: "Dehydration", date: "2026-02-03", status: "dispensed", medications: [
+    { productId: 3, productName: "ORS Sachet", dosage: "1 sachet", frequency: "After each stool", duration: "As needed", quantity: 20 }
+  ]},
+];
+
+const demoSalesReturns = [
+  { id: 1, returnNumber: "SR-001", originalInvoice: "INV-5499", customer: "Walk-in", returnDate: "2026-02-03", reason: "damaged", items: 2, refundAmount: 320, status: "approved" },
+  { id: 2, returnNumber: "SR-002", originalInvoice: "INV-5501", customer: "Dr. Ahmad Clinic", returnDate: "2026-02-04", reason: "wrongProduct", items: 1, refundAmount: 180, status: "pending" },
+];
+
+const demoPurchaseReturns = [
+  { id: 1, returnNumber: "PR-001", originalGrn: "GRN-1020", supplier: "Kabul Med Distributors", returnDate: "2026-02-02", reason: "expired", items: 5, refundAmount: 2500, status: "approved" },
+];
+
+const demoBranches = [
+  { id: 1, name: "Main Kabul", address: "Shahr-e-Naw, Kabul", phone: "+93 700 000 000", isMain: true, status: "active" },
+  { id: 2, name: "Mazar Branch", address: "Central Market, Mazar-i-Sharif", phone: "+93 700 111 111", isMain: false, status: "active" },
+  { id: 3, name: "Herat Branch", address: "New City, Herat", phone: "+93 700 222 222", isMain: false, status: "active" },
+];
+
+const demoStockTransfers = [
+  { id: 1, transferNumber: "TR-001", fromBranch: "Main Kabul", toBranch: "Mazar Branch", transferDate: "2026-02-01", items: 15, status: "received" },
+  { id: 2, transferNumber: "TR-002", fromBranch: "Main Kabul", toBranch: "Herat Branch", transferDate: "2026-02-03", items: 8, status: "inTransit" },
+];
+
+const demoOfflineQueue = [
+  { id: 1, type: "SALE", data: { invoiceId: "INV-OFFLINE-001", total: 450 }, queuedAt: "2026-02-04 10:30:00", status: "queued" },
+  { id: 2, type: "STOCK_ADJUSTMENT", data: { productId: 1, adjustment: -3 }, queuedAt: "2026-02-04 10:32:00", status: "queued" },
+];
+
+// Auth context and hooks
+const AuthContext = React.createContext(null);
+
+function useAuth() {
+  const context = React.useContext(AuthContext);
+  if (!context) {
+    // Return default auth state if no provider
+    return {
+      user: demoUsers[0],
+      isAuthenticated: true,
+      login: () => {},
+      logout: () => {},
+      hasPermission: () => true,
+    };
+  }
+  return context;
+}
+
+function AuthProvider({ children }) {
+  const [user, setUser] = useKV('current-user', demoUsers[0]);
+  const [isAuthenticated, setIsAuthenticated] = useKV('is-authenticated', true);
+  const [auditLogs, setAuditLogs] = useKV('audit-logs', demoAuditLogs);
+
+  const login = useCallback((username, password) => {
+    const foundUser = demoUsers.find(u => u.username === username);
+    if (foundUser) {
+      setUser(foundUser);
+      setIsAuthenticated(true);
+      // Add audit log
+      const newLog = {
+        id: auditLogs.length + 1,
+        userId: foundUser.id,
+        username: foundUser.username,
+        action: "LOGIN",
+        details: "Successful login",
+        timestamp: new Date().toISOString(),
+        ipAddress: "192.168.1.100"
+      };
+      setAuditLogs([newLog, ...auditLogs]);
+      return true;
+    }
+    return false;
+  }, [auditLogs, setAuditLogs, setUser, setIsAuthenticated]);
+
+  const logout = useCallback(() => {
+    if (user) {
+      const newLog = {
+        id: auditLogs.length + 1,
+        userId: user.id,
+        username: user.username,
+        action: "LOGOUT",
+        details: "User logged out",
+        timestamp: new Date().toISOString(),
+        ipAddress: "192.168.1.100"
+      };
+      setAuditLogs([newLog, ...auditLogs]);
+    }
+    setUser(null);
+    setIsAuthenticated(false);
+  }, [user, auditLogs, setAuditLogs, setUser, setIsAuthenticated]);
+
+  const hasPermission = useCallback((permission) => {
+    if (!user) return false;
+    if (user.role === 'admin' || user.permissions.includes('all')) return true;
+    return user.permissions.includes(permission);
+  }, [user]);
+
+  const logAction = useCallback((action, details) => {
+    if (user) {
+      const newLog = {
+        id: auditLogs.length + 1,
+        userId: user.id,
+        username: user.username,
+        action,
+        details,
+        timestamp: new Date().toISOString(),
+        ipAddress: "192.168.1.100"
+      };
+      setAuditLogs([newLog, ...auditLogs]);
+    }
+  }, [user, auditLogs, setAuditLogs]);
+
+  return (
+    <AuthContext.Provider value={{ user, isAuthenticated, login, logout, hasPermission, logAction, auditLogs }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+// Offline transaction queue hook
+function useOfflineQueue() {
+  const [queue, setQueue] = useKV('offline-transaction-queue', []);
+  const { isOnline } = useNetworkStatus();
+
+  const addToQueue = useCallback((type, data) => {
+    const newItem = {
+      id: Date.now(),
+      type,
+      data,
+      queuedAt: new Date().toISOString(),
+      status: 'queued'
+    };
+    setQueue(prev => [...prev, newItem]);
+    return newItem.id;
+  }, [setQueue]);
+
+  const processQueue = useCallback(async () => {
+    if (!isOnline || queue.length === 0) return;
+
+    const updatedQueue = [...queue];
+    for (let i = 0; i < updatedQueue.length; i++) {
+      if (updatedQueue[i].status === 'queued') {
+        updatedQueue[i].status = 'syncing';
+        setQueue(updatedQueue);
+        
+        // Simulate API call
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        updatedQueue[i].status = 'synced';
+        setQueue(updatedQueue);
+      }
+    }
+    
+    // Remove synced items after processing
+    setQueue(queue.filter(item => item.status !== 'synced'));
+  }, [isOnline, queue, setQueue]);
+
+  const clearQueue = useCallback(() => {
+    setQueue([]);
+  }, [setQueue]);
+
+  const retryFailed = useCallback(() => {
+    setQueue(queue.map(item => 
+      item.status === 'failed' ? { ...item, status: 'queued' } : item
+    ));
+  }, [queue, setQueue]);
+
+  // Auto-process queue when coming back online
+  useEffect(() => {
+    if (isOnline && queue.some(item => item.status === 'queued')) {
+      processQueue();
+    }
+  }, [isOnline]);
+
+  return { queue, addToQueue, processQueue, clearQueue, retryFailed, pendingCount: queue.filter(i => i.status === 'queued').length };
+}
+
+// Expiry check utility
+function checkProductExpiry(product) {
+  if (!product.expiry) return { status: 'ok', daysUntil: null };
+  
+  const expiryDate = new Date(product.expiry);
+  const today = new Date();
+  const daysUntil = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+  
+  if (daysUntil < 0) return { status: 'expired', daysUntil };
+  if (daysUntil <= 30) return { status: 'expiringSoon', daysUntil };
+  return { status: 'ok', daysUntil };
+}
+
+// Export utilities
+function exportToCSV(data, filename) {
+  if (!data || data.length === 0) return;
+  
+  const headers = Object.keys(data[0]);
+  const csvContent = [
+    headers.join(','),
+    ...data.map(row => headers.map(h => `"${row[h] || ''}"`).join(','))
+  ].join('\n');
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+}
+
+function exportToJSON(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}_${new Date().toISOString().split('T')[0]}.json`;
+  link.click();
+}
 
 
 function Sidebar({ current, setCurrent }) {
