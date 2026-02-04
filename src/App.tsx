@@ -27,6 +27,7 @@ import {
   Trash2,
   Edit,
   Eye,
+  EyeOff,
   Save,
   X,
   Check,
@@ -53,6 +54,7 @@ import {
   Key,
   UserPlus,
   LogOut,
+  LogIn,
   Shield,
   Activity,
   Clock,
@@ -69,6 +71,12 @@ import {
   Ban,
   RotateCcw,
   History,
+  Menu,
+  TrendingUp,
+  PieChart as PieChartIcon,
+  Loader2,
+  User2,
+  UserCog,
 } from "lucide-react";
 import { useKV } from '@github/spark/hooks';
 
@@ -1084,7 +1092,7 @@ function exportToJSON(data, filename) {
 }
 
 
-function Sidebar({ current, setCurrent }) {
+function Sidebar({ current, setCurrent, user, onLogout }: { current: string; setCurrent: (v: string) => void; user?: any; onLogout?: () => void }) {
   const { t } = useTranslation();
   const { isRTL } = useLanguage();
   
@@ -1117,23 +1125,51 @@ function Sidebar({ current, setCurrent }) {
         <div className="font-semibold">ZamPharm</div>
         <Badge className="ml-auto" variant="secondary">v1</Badge>
       </div>
-      <div className="p-2 overflow-y-auto">
+      <ScrollArea className="flex-1 p-2">
         {routes.map((r) => (
           <button key={r.key} onClick={() => setCurrent(r.key)} className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm hover:bg-muted ${current===r.key?"bg-muted font-semibold":""} ${isRTL ? 'text-right' : 'text-left'}`}>
             <r.icon className="h-4 w-4"/>
             {t(`nav.${r.key}`)}
           </button>
         ))}
-      </div>
-      <div className="mt-auto p-4">
-        <Card>
-          <CardContent className="p-4 text-xs text-muted-foreground">
-            <div className="font-medium text-foreground">{t('common.branch')}</div>
-            <div className="flex items-center gap-2 mt-1">
-              <Store className="h-4 w-4"/> {t('settings.mainKabul')}
+      </ScrollArea>
+      <div className="p-4 border-t space-y-3">
+        {user && (
+          <div className="flex items-center gap-3 mb-3">
+            <Avatar className="h-9 w-9">
+              <AvatarFallback className="bg-primary/10 text-primary">{user.name?.charAt(0) || 'U'}</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium truncate">{user.name}</div>
+              <div className="text-xs text-muted-foreground capitalize flex items-center gap-1">
+                {user.role === 'admin' && <Shield className="h-3 w-3" />}
+                {user.role}
+              </div>
             </div>
-            <div className="mt-2">{t('sidebar.lastSync', { time: '3m' })}</div>
-            <Button variant="outline" className="mt-3 w-full"><RefreshCcw className="h-4 w-4 mr-2"/>{t('sidebar.sync')}</Button>
+            {onLogout && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onLogout}>
+                      <LogOut className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Sign Out</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
+        )}
+        <Card className="bg-muted/50">
+          <CardContent className="p-3 text-xs text-muted-foreground">
+            <div className="font-medium text-foreground flex items-center gap-2">
+              <Store className="h-4 w-4"/> {t('common.branch')}
+            </div>
+            <div className="mt-1 pl-6">{t('settings.mainKabul')}</div>
+            <div className="mt-2 text-[10px] flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+              {t('sidebar.lastSync', { time: '3m' })}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -1141,17 +1177,24 @@ function Sidebar({ current, setCurrent }) {
   );
 }
 
-function Topbar() {
+function Topbar({ user, onOpenCommand }: { user?: any; onOpenCommand?: () => void }) {
   const { t } = useTranslation();
   const { isRTL } = useLanguage();
   
   return (
-    <div className="h-16 border-b flex items-center justify-between px-4">
+    <div className="h-16 border-b flex items-center justify-between px-4 bg-background/95 backdrop-blur sticky top-0 z-30">
       <div className="flex items-center gap-2 w-full md:w-auto">
-        <div className="relative w-full md:w-96">
-          <Search className={`absolute ${isRTL ? 'right-2' : 'left-2'} top-2.5 h-4 w-4`}/>
-          <Input placeholder={t('topbar.quickSearch')} className={`${isRTL ? 'pr-8' : 'pl-8'}`}/>
-        </div>
+        <Button 
+          variant="outline" 
+          className="w-full md:w-80 justify-start text-muted-foreground"
+          onClick={onOpenCommand}
+        >
+          <Search className="h-4 w-4 mr-2"/>
+          <span className="flex-1 text-left">{t('topbar.quickSearch')}</span>
+          <kbd className="hidden md:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+            Ctrl+K
+          </kbd>
+        </Button>
       </div>
       <div className="flex items-center gap-2">
         <TooltipProvider>
@@ -1164,7 +1207,10 @@ function Topbar() {
         </TooltipProvider>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon"><Bell className="h-5 w-5"/></Button>
+            <Button variant="ghost" size="icon" className="relative">
+              <Bell className="h-5 w-5"/>
+              <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-[10px] text-white rounded-full flex items-center justify-center">2</span>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
             <DropdownMenuLabel>{t('topbar.notifications')}</DropdownMenuLabel>
@@ -1183,13 +1229,27 @@ function Topbar() {
         <LanguageSelector />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="gap-2"><UserCircle2 className="h-5 w-5"/> Admin</Button>
+            <Button variant="outline" className="gap-2">
+              <Avatar className="h-6 w-6">
+                <AvatarFallback className="text-xs">{user?.name?.charAt(0) || 'U'}</AvatarFallback>
+              </Avatar>
+              <span className="hidden md:inline">{user?.name || 'User'}</span>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuLabel className="font-normal">
+              <div className="flex flex-col space-y-1">
+                <p className="text-sm font-medium leading-none">{user?.name}</p>
+                <p className="text-xs leading-none text-muted-foreground capitalize">{user?.role}</p>
+              </div>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator/>
             <DropdownMenuItem>{t('topbar.profile')}</DropdownMenuItem>
             <DropdownMenuItem>{t('topbar.switchBranch')}</DropdownMenuItem>
             <DropdownMenuSeparator/>
-            <DropdownMenuItem>{t('topbar.signOut')}</DropdownMenuItem>
+            <DropdownMenuItem className="text-red-600">
+              <LogOut className="h-4 w-4 mr-2"/>{t('topbar.signOut')}
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -1199,51 +1259,340 @@ function Topbar() {
 
 function Dashboard() {
   const { t } = useTranslation();
+  const { isRTL } = useLanguage();
   
+  // Sales data for the past 7 days
+  const salesData = [
+    { day: 'Mon', sales: 18500, invoices: 24 },
+    { day: 'Tue', sales: 22300, invoices: 31 },
+    { day: 'Wed', sales: 19800, invoices: 28 },
+    { day: 'Thu', sales: 25600, invoices: 35 },
+    { day: 'Fri', sales: 31200, invoices: 42 },
+    { day: 'Sat', sales: 28400, invoices: 38 },
+    { day: 'Sun', sales: 12500, invoices: 18 },
+  ];
+
+  // Category breakdown
+  const categoryData = [
+    { name: 'Tablets', value: 45, fill: 'hsl(var(--chart-1))' },
+    { name: 'Capsules', value: 25, fill: 'hsl(var(--chart-2))' },
+    { name: 'Syrups', value: 15, fill: 'hsl(var(--chart-3))' },
+    { name: 'Injections', value: 10, fill: 'hsl(var(--chart-4))' },
+    { name: 'Others', value: 5, fill: 'hsl(var(--chart-5))' },
+  ];
+
+  // Stock level data
+  const stockData = demoProducts.map(p => ({
+    name: p.name.split(' ')[0],
+    stock: p.stock,
+    min: p.min,
+    fill: p.stock < p.min ? 'hsl(var(--destructive))' : p.stock < p.min * 1.5 ? 'hsl(var(--chart-2))' : 'hsl(var(--chart-1))'
+  }));
+
+  // Recent transactions
+  const recentTransactions = [
+    { id: 'INV-5504', customer: 'Walk-in', amount: 450, time: '10:30 AM', type: 'sale' },
+    { id: 'INV-5503', customer: 'Dr. Ahmad Clinic', amount: 1250, time: '10:15 AM', type: 'sale' },
+    { id: 'GRN-1024', customer: 'Kabul Med Distributors', amount: 32000, time: '09:45 AM', type: 'purchase' },
+    { id: 'INV-5502', customer: 'Walk-in', amount: 180, time: '09:30 AM', type: 'sale' },
+    { id: 'SR-003', customer: 'Walk-in', amount: -120, time: '09:00 AM', type: 'return' },
+  ];
+
+  const totalSales = salesData.reduce((sum, d) => sum + d.sales, 0);
+  const totalInvoices = salesData.reduce((sum, d) => sum + d.invoices, 0);
+  const avgSale = Math.round(totalSales / totalInvoices);
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={LayoutGrid} title={t('dashboard.title')} extra={<div className="text-sm text-muted-foreground">{t('dashboard.today')} • {new Date().toDateString()}</div>} />
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {[
-          {t: t('dashboard.sales'), v:"AFN 124,500"},
-          {t: t('dashboard.invoices'), v:"148"},
-          {t: t('dashboard.lowStock'), v:"7"},
-          {t: t('dashboard.expiring'), v:"10"}
-        ].map((k,i)=> (
-          <Card key={i}>
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{k.t}</CardTitle></CardHeader>
-            <CardContent className="text-2xl font-semibold">{k.v}</CardContent>
-          </Card>
-        ))}
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle>{t('dashboard.topProducts')}</CardTitle>
+      <SectionHeader 
+        icon={LayoutGrid} 
+        title={t('dashboard.title')} 
+        extra={
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-muted-foreground">{t('dashboard.today')} • {new Date().toDateString()}</div>
+            <Button variant="outline" size="sm">
+              <RefreshCcw className="h-4 w-4 mr-2"/>Refresh
+            </Button>
+          </div>
+        } 
+      />
+      
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="bg-gradient-to-br from-blue-50 to-white dark:from-blue-950 dark:to-background">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+              <BadgeDollarSign className="h-4 w-4"/>{t('dashboard.sales')}
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {demoProducts.map((p)=> (
-              <div key={p.id} className="flex items-center justify-between">
-                <div className="text-sm">{p.name}</div>
-                <Progress value={Math.min(100, (p.stock / 500) * 100)} />
-              </div>
-            ))}
+          <CardContent>
+            <div className="text-2xl font-bold">AFN {totalSales.toLocaleString()}</div>
+            <div className="text-xs text-green-600 flex items-center gap-1 mt-1">
+              <TrendingUp className="h-3 w-3"/>+12.5% vs last week
+            </div>
           </CardContent>
         </Card>
+        
+        <Card className="bg-gradient-to-br from-green-50 to-white dark:from-green-950 dark:to-background">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+              <Receipt className="h-4 w-4"/>{t('dashboard.invoices')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalInvoices}</div>
+            <div className="text-xs text-muted-foreground mt-1">Avg: AFN {avgSale.toLocaleString()}</div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-gradient-to-br from-orange-50 to-white dark:from-orange-950 dark:to-background">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+              <Package className="h-4 w-4"/>{t('dashboard.lowStock')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-600">7</div>
+            <div className="text-xs text-orange-600 mt-1">Needs attention</div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-gradient-to-br from-red-50 to-white dark:from-red-950 dark:to-background">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+              <CalendarClock className="h-4 w-4"/>{t('dashboard.expiring')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">10</div>
+            <div className="text-xs text-red-600 mt-1">Within 30 days</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Sales Trend Chart */}
         <Card>
-          <CardHeader><CardTitle>{t('dashboard.alerts')}</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5"/>Weekly Sales Trend
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <SalesChart data={salesData} />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Category Breakdown */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <PieChartIcon className="h-5 w-5"/>Sales by Category
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64 flex items-center justify-center">
+              <CategoryChart data={categoryData} />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Bottom Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Stock Levels */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Boxes className="h-5 w-5"/>Stock Levels
+            </CardTitle>
+          </CardHeader>
           <CardContent className="space-y-3">
-            {demoAlerts.map((a)=> (
-              <div key={a.id} className="p-3 rounded-xl border flex items-start gap-2">
-                <AlertOctagon className="h-4 w-4 mt-0.5"/>
+            {demoProducts.map((p) => {
+              const percentage = Math.min(100, (p.stock / (p.min * 3)) * 100);
+              const isLow = p.stock < p.min;
+              const isWarning = p.stock < p.min * 1.5;
+              return (
+                <div key={p.id} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="truncate">{p.name}</span>
+                    <span className={`font-medium ${isLow ? 'text-red-600' : isWarning ? 'text-orange-600' : ''}`}>
+                      {p.stock} / {p.min * 3}
+                    </span>
+                  </div>
+                  <Progress 
+                    value={percentage} 
+                    className={`h-2 ${isLow ? '[&>div]:bg-red-500' : isWarning ? '[&>div]:bg-orange-500' : ''}`}
+                  />
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        {/* Recent Transactions */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5"/>Recent Activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {recentTransactions.map((tx) => (
+                <div key={tx.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                      tx.type === 'sale' ? 'bg-green-100 text-green-600' :
+                      tx.type === 'purchase' ? 'bg-blue-100 text-blue-600' :
+                      'bg-orange-100 text-orange-600'
+                    }`}>
+                      {tx.type === 'sale' ? <Receipt className="h-4 w-4"/> :
+                       tx.type === 'purchase' ? <Truck className="h-4 w-4"/> :
+                       <ArrowLeftRight className="h-4 w-4"/>}
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium">{tx.id}</div>
+                      <div className="text-xs text-muted-foreground">{tx.customer}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-sm font-medium ${tx.amount < 0 ? 'text-red-600' : ''}`}>
+                      {tx.amount < 0 ? '-' : '+'}{Math.abs(tx.amount).toLocaleString()} AFN
+                    </div>
+                    <div className="text-xs text-muted-foreground">{tx.time}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Alerts */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bell className="h-5 w-5"/>{t('dashboard.alerts')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {demoAlerts.map((a) => (
+              <div key={a.id} className={`p-3 rounded-xl border flex items-start gap-2 ${
+                a.severity === 'high' ? 'border-red-200 bg-red-50' : 'border-orange-200 bg-orange-50'
+              }`}>
+                <AlertOctagon className={`h-4 w-4 mt-0.5 ${a.severity === 'high' ? 'text-red-600' : 'text-orange-600'}`}/>
                 <div>
                   <div className="text-sm font-medium capitalize">{t(`alerts.${a.type}`)}</div>
-                  <div className="text-xs text-muted-foreground">{a.type === 'expiry' ? t('alerts.expiringItems', { count: 10 }) : t('alerts.lowStockItems', { count: 7 })}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {a.type === 'expiry' ? t('alerts.expiringItems', { count: 10 }) : t('alerts.lowStockItems', { count: 7 })}
+                  </div>
                 </div>
               </div>
             ))}
+            
+            {/* Quick Actions */}
+            <Separator className="my-3"/>
+            <div className="text-sm font-medium mb-2">Quick Actions</div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" size="sm" className="justify-start">
+                <ShoppingCart className="h-4 w-4 mr-2"/>New Sale
+              </Button>
+              <Button variant="outline" size="sm" className="justify-start">
+                <Truck className="h-4 w-4 mr-2"/>New GRN
+              </Button>
+              <Button variant="outline" size="sm" className="justify-start">
+                <ClipboardList className="h-4 w-4 mr-2"/>New Rx
+              </Button>
+              <Button variant="outline" size="sm" className="justify-start">
+                <FileBarChart2 className="h-4 w-4 mr-2"/>Reports
+              </Button>
+            </div>
           </CardContent>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+// Simple chart components using divs (no external dependency)
+function SalesChart({ data }) {
+  const maxSales = Math.max(...data.map(d => d.sales));
+  
+  return (
+    <div className="h-full flex items-end justify-between gap-2 pt-4">
+      {data.map((d, i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-2">
+          <div className="text-xs font-medium">{(d.sales / 1000).toFixed(0)}k</div>
+          <div 
+            className="w-full bg-primary/80 rounded-t-md transition-all hover:bg-primary"
+            style={{ height: `${(d.sales / maxSales) * 180}px` }}
+          />
+          <div className="text-xs text-muted-foreground">{d.day}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CategoryChart({ data }) {
+  const total = data.reduce((sum, d) => sum + d.value, 0);
+  let cumulativePercent = 0;
+  
+  return (
+    <div className="flex items-center gap-8">
+      {/* Donut Chart */}
+      <div className="relative">
+        <svg width="160" height="160" viewBox="0 0 160 160">
+          {data.map((d, i) => {
+            const percent = d.value / total;
+            const startAngle = cumulativePercent * 360;
+            cumulativePercent += percent;
+            const endAngle = cumulativePercent * 360;
+            
+            const startRad = (startAngle - 90) * Math.PI / 180;
+            const endRad = (endAngle - 90) * Math.PI / 180;
+            
+            const x1 = 80 + 60 * Math.cos(startRad);
+            const y1 = 80 + 60 * Math.sin(startRad);
+            const x2 = 80 + 60 * Math.cos(endRad);
+            const y2 = 80 + 60 * Math.sin(endRad);
+            
+            const largeArcFlag = percent > 0.5 ? 1 : 0;
+            
+            return (
+              <path
+                key={i}
+                d={`M 80 80 L ${x1} ${y1} A 60 60 0 ${largeArcFlag} 1 ${x2} ${y2} Z`}
+                fill={`hsl(${i * 60}, 70%, 50%)`}
+                className="hover:opacity-80 transition-opacity cursor-pointer"
+              />
+            );
+          })}
+          <circle cx="80" cy="80" r="35" fill="white" className="dark:fill-background" />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-2xl font-bold">{total}%</div>
+            <div className="text-xs text-muted-foreground">Total</div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Legend */}
+      <div className="space-y-2">
+        {data.map((d, i) => (
+          <div key={i} className="flex items-center gap-2 text-sm">
+            <div 
+              className="w-3 h-3 rounded-full" 
+              style={{ backgroundColor: `hsl(${i * 60}, 70%, 50%)` }}
+            />
+            <span>{d.name}</span>
+            <span className="text-muted-foreground ml-auto">{d.value}%</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -4700,17 +5049,355 @@ const RouteView = ({ route }) => {
   }
 };
 
+// Login Screen Component
+function LoginScreen({ onLogin }: { onLogin: (user: any) => void }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const { t, i18n } = useTranslation();
+  const { language, setLanguage, isRTL } = useLanguage();
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+    
+    // Simulate authentication
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // Demo credentials
+    const demoUsers = [
+      { username: 'admin', password: 'admin123', role: 'admin', name: 'Administrator' },
+      { username: 'cashier', password: 'cash123', role: 'cashier', name: 'Ahmad Cashier' },
+      { username: 'pharmacist', password: 'pharma123', role: 'pharmacist', name: 'Dr. Fatima' },
+    ];
+    
+    const user = demoUsers.find(u => u.username === username && u.password === password);
+    
+    if (user) {
+      onLogin(user);
+    } else {
+      setError('Invalid username or password');
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className={`min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 dark:from-blue-950 dark:via-background dark:to-green-950 flex items-center justify-center p-4 ${isRTL ? 'rtl' : 'ltr'}`}>
+      <div className="absolute top-4 right-4">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Languages className="h-4 w-4 mr-2"/>{language === 'en' ? 'English' : language === 'fa' ? 'دری' : 'پښتو'}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setLanguage('en')}>English</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setLanguage('fa')}>دری (Dari)</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setLanguage('ps')}>پښتو (Pashto)</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md"
+      >
+        <Card className="shadow-2xl border-0">
+          <CardHeader className="text-center pb-4">
+            <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+              <Pill className="h-8 w-8 text-primary" />
+            </div>
+            <CardTitle className="text-2xl">Zam Pharma</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Pharmacy Management System
+            </p>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleLogin} className="space-y-4">
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm flex items-center gap-2">
+                  <AlertOctagon className="h-4 w-4" />
+                  {error}
+                </div>
+              )}
+              
+              <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <div className="relative">
+                  <User2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground`} />
+                  <Input
+                    id="username"
+                    placeholder="Enter username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className={`${isRTL ? 'pr-10' : 'pl-10'}`}
+                    autoComplete="username"
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Lock className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground`} />
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Enter password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={`${isRTL ? 'pr-10 pl-10' : 'pl-10 pr-10'}`}
+                    autoComplete="current-password"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={`absolute ${isRTL ? 'left-1' : 'right-1'} top-1/2 -translate-y-1/2 h-8 w-8`}
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+              
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="h-4 w-4 mr-2" />
+                    Sign In
+                  </>
+                )}
+              </Button>
+            </form>
+            
+            <Separator className="my-6" />
+            
+            <div className="space-y-3">
+              <p className="text-xs text-center text-muted-foreground">Demo Credentials</p>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => { setUsername('admin'); setPassword('admin123'); }}
+                  className="flex flex-col h-auto py-2"
+                >
+                  <Shield className="h-4 w-4 mb-1" />
+                  Admin
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => { setUsername('cashier'); setPassword('cash123'); }}
+                  className="flex flex-col h-auto py-2"
+                >
+                  <ShoppingCart className="h-4 w-4 mb-1" />
+                  Cashier
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => { setUsername('pharmacist'); setPassword('pharma123'); }}
+                  className="flex flex-col h-auto py-2"
+                >
+                  <Stethoscope className="h-4 w-4 mb-1" />
+                  Pharmacist
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <p className="text-center text-xs text-muted-foreground mt-4">
+          © 2024 Zam Pharma • Kabul, Afghanistan
+        </p>
+      </motion.div>
+    </div>
+  );
+}
+
+// Keyboard Shortcuts Hook
+function useKeyboardShortcuts(handlers: Record<string, () => void>) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      
+      const key = e.key.toUpperCase();
+      const shortcut = e.ctrlKey ? `Ctrl+${key}` : e.altKey ? `Alt+${key}` : key;
+      
+      if (handlers[shortcut]) {
+        e.preventDefault();
+        handlers[shortcut]();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handlers]);
+}
+
+// Global Search Command Palette
+function CommandPalette({ open, onOpenChange, onNavigate }: { open: boolean; onOpenChange: (open: boolean) => void; onNavigate: (route: string) => void }) {
+  const { t } = useTranslation();
+  const [search, setSearch] = useState('');
+  
+  const commands = [
+    { id: 'dashboard', icon: LayoutGrid, label: 'Dashboard', category: 'Navigation' },
+    { id: 'pos', icon: ShoppingCart, label: 'Point of Sale', category: 'Navigation' },
+    { id: 'inventory', icon: Package, label: 'Inventory', category: 'Navigation' },
+    { id: 'sales', icon: Receipt, label: 'Sales', category: 'Navigation' },
+    { id: 'purchases', icon: Truck, label: 'Purchases', category: 'Navigation' },
+    { id: 'customers', icon: Users, label: 'Customers', category: 'Navigation' },
+    { id: 'prescriptions', icon: ClipboardList, label: 'Prescriptions', category: 'Navigation' },
+    { id: 'returns', icon: ArrowLeftRight, label: 'Returns', category: 'Navigation' },
+    { id: 'reports', icon: FileBarChart2, label: 'Reports', category: 'Navigation' },
+    { id: 'settings', icon: Settings, label: 'Settings', category: 'Navigation' },
+    { id: 'branches', icon: Building2, label: 'Branches', category: 'Navigation' },
+    { id: 'users', icon: UserCog, label: 'Users', category: 'Navigation' },
+    { id: 'labels', icon: Printer, label: 'Print Labels', category: 'Navigation' },
+    { id: 'offline', icon: WifiOff, label: 'Offline Queue', category: 'Navigation' },
+  ];
+  
+  const filteredCommands = commands.filter(cmd => 
+    cmd.label.toLowerCase().includes(search.toLowerCase()) ||
+    cmd.category.toLowerCase().includes(search.toLowerCase())
+  );
+  
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="p-0 max-w-lg">
+        <Command className="rounded-lg border-0">
+          <div className="flex items-center border-b px-3">
+            <Search className="h-4 w-4 text-muted-foreground mr-2" />
+            <Input
+              placeholder="Search commands, pages, products..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="border-0 focus-visible:ring-0 h-12"
+            />
+            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-xs font-medium text-muted-foreground">
+              ESC
+            </kbd>
+          </div>
+          <div className="max-h-80 overflow-y-auto p-2">
+            {filteredCommands.length === 0 ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                No results found.
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {filteredCommands.map((cmd) => (
+                  <button
+                    key={cmd.id}
+                    onClick={() => {
+                      onNavigate(cmd.id);
+                      onOpenChange(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg hover:bg-muted transition-colors"
+                  >
+                    <cmd.icon className="h-4 w-4 text-muted-foreground" />
+                    <span>{cmd.label}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">{cmd.category}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </Command>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function App() {
   const [route, setRoute] = useState("dashboard");
   const { isOnline } = useNetworkStatus();
   const { isRTL } = useLanguage();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    'Ctrl+K': () => setCommandOpen(true),
+    'Ctrl+P': () => setRoute('pos'),
+    'Ctrl+D': () => setRoute('dashboard'),
+    'Ctrl+I': () => setRoute('inventory'),
+    'F1': () => setRoute('dashboard'),
+    'F2': () => setRoute('pos'),
+    'F3': () => setRoute('inventory'),
+    'F4': () => setRoute('sales'),
+    'F5': () => setRoute('reports'),
+  });
+  
+  const handleLogin = (user: any) => {
+    setCurrentUser(user);
+    setIsAuthenticated(true);
+  };
+  
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setIsAuthenticated(false);
+  };
+  
+  // Show login if not authenticated
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
   
   return (
     <div className={`h-screen w-full bg-background text-foreground ${isRTL ? 'rtl' : 'ltr'}`}>
-      <div className={`flex h-full ${isRTL ? 'flex-row-reverse' : 'flex-row'}`}>
-        <Sidebar current={route} setCurrent={setRoute}/>
-        <div className="flex-1 flex flex-col">
-          <Topbar/>
+      {/* Mobile Header */}
+      <div className="md:hidden flex items-center justify-between p-3 border-b bg-background/95 backdrop-blur sticky top-0 z-40">
+        <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)}>
+          <Menu className="h-5 w-5" />
+        </Button>
+        <div className="flex items-center gap-2">
+          <Pill className="h-5 w-5 text-primary" />
+          <span className="font-semibold">Zam Pharma</span>
+        </div>
+        <Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)}>
+          <Search className="h-5 w-5" />
+        </Button>
+      </div>
+
+      <div className={`flex h-full md:h-screen ${isRTL ? 'flex-row-reverse' : 'flex-row'}`}>
+        {/* Desktop Sidebar */}
+        <div className="hidden md:block">
+          <Sidebar current={route} setCurrent={setRoute} user={currentUser} onLogout={handleLogout} />
+        </div>
+        
+        {/* Mobile Sidebar Sheet */}
+        <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+          <SheetContent side={isRTL ? 'right' : 'left'} className="p-0 w-72">
+            <div className="h-full overflow-y-auto">
+              <MobileSidebar 
+                current={route} 
+                setCurrent={(r) => { setRoute(r); setSidebarOpen(false); }}
+                user={currentUser}
+                onLogout={handleLogout}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+        
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="hidden md:block">
+            <Topbar user={currentUser} onOpenCommand={() => setCommandOpen(true)} />
+          </div>
           <AnimatePresence mode="wait">
             <motion.main key={route} initial={{opacity:0, y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}} transition={{duration:0.15}} className="flex-1 overflow-y-auto">
               <RouteView route={route}/>
@@ -4718,6 +5405,9 @@ function App() {
           </AnimatePresence>
         </div>
       </div>
+      
+      {/* Command Palette */}
+      <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} onNavigate={setRoute} />
       
       {/* Offline indicator overlay */}
       {!isOnline && (
@@ -4737,6 +5427,85 @@ function App() {
           </motion.div>
         </div>
       )}
+      
+      {/* Keyboard shortcuts help */}
+      <div className="hidden md:block fixed bottom-4 right-4 text-xs text-muted-foreground">
+        <kbd className="px-1.5 py-0.5 bg-muted rounded mr-1">Ctrl+K</kbd> Search
+      </div>
+    </div>
+  );
+}
+
+// Mobile Sidebar Component
+function MobileSidebar({ current, setCurrent, user, onLogout }: { current: string; setCurrent: (v: string) => void; user: any; onLogout: () => void }) {
+  const { t } = useTranslation();
+  const { isRTL } = useLanguage();
+  
+  const navItems = [
+    { id: 'dashboard', icon: LayoutGrid, label: t('nav.dashboard') },
+    { id: 'pos', icon: ShoppingCart, label: t('nav.pos') },
+    { id: 'inventory', icon: Package, label: t('nav.inventory') },
+    { id: 'sales', icon: Receipt, label: t('nav.sales') },
+    { id: 'purchases', icon: Truck, label: t('nav.purchases') },
+    { id: 'customers', icon: Users, label: t('nav.customers') },
+    { id: 'prescriptions', icon: ClipboardList, label: t('nav.prescriptions') },
+    { id: 'returns', icon: ArrowLeftRight, label: t('nav.returns') },
+    { id: 'reports', icon: FileBarChart2, label: t('nav.reports') },
+    { id: 'branches', icon: Building2, label: t('nav.branches') || 'Branches' },
+    { id: 'users', icon: UserCog, label: t('nav.users') || 'Users' },
+    { id: 'labels', icon: Printer, label: t('nav.labels') || 'Print Labels' },
+    { id: 'offline', icon: WifiOff, label: t('nav.offline') || 'Offline Queue' },
+    { id: 'settings', icon: Settings, label: t('nav.settings') },
+  ];
+  
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-4 border-b">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+            <Pill className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <div className="font-semibold">Zam Pharma</div>
+            <div className="text-xs text-muted-foreground">Pharmacy Management</div>
+          </div>
+        </div>
+      </div>
+      
+      <ScrollArea className="flex-1 p-2">
+        <div className="space-y-1">
+          {navItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setCurrent(item.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                current === item.id 
+                  ? 'bg-primary text-primary-foreground' 
+                  : 'hover:bg-muted'
+              }`}
+            >
+              <item.icon className="h-4 w-4" />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </ScrollArea>
+      
+      <div className="p-4 border-t space-y-3">
+        <div className="flex items-center gap-3">
+          <Avatar className="h-9 w-9">
+            <AvatarFallback>{user?.name?.charAt(0) || 'U'}</AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate">{user?.name}</div>
+            <div className="text-xs text-muted-foreground capitalize">{user?.role}</div>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" className="w-full" onClick={onLogout}>
+          <LogOut className="h-4 w-4 mr-2" />
+          Sign Out
+        </Button>
+      </div>
     </div>
   );
 }
