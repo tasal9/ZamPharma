@@ -171,6 +171,7 @@ function useLanguage() {
     isRTL,
     invoiceLanguage,
     changeLanguage,
+    setLanguage: changeLanguage,
     setDirection,
     setInvoiceLanguage,
     getLanguageName
@@ -370,8 +371,41 @@ function LanguageSelector({ className = "" }) {
     </DropdownMenu>
   );
 }
+
+type AuditEntry = {
+  auditId: string;
+  auditTime: string;
+  product: any;
+  operatorId?: string;
+  deviceId?: string;
+};
+
+type AuditConflict = {
+  productId: number;
+  productName: string;
+  productSku: string;
+  conflictType: string;
+  entries: AuditEntry[];
+  recommendedResolution: {
+    type: string;
+    selectedEntry: AuditEntry;
+    reason: string;
+  };
+};
+
+type AuditResolution = {
+  conflictId: string;
+  productId: number;
+  resolutionType: string;
+  strategy: string;
+  selectedAudit: string;
+  resolvedAt: string;
+  discardedAudits?: string[];
+  operatorId?: string;
+};
+
 // Conflict resolution for overlapping audit data
-function resolveAuditConflicts(audits) {
+function resolveAuditConflicts(audits: any[]) {
   const conflicts = [];
   const resolutions = [];
   
@@ -417,24 +451,24 @@ function resolveAuditConflicts(audits) {
   });
   
   // Auto-resolve conflicts using latest-wins strategy
-  conflicts.forEach(conflict => {
-resolutions.push({
-conflictId: `${conflict.productId}-${Date.now()}`,
-productId: conflict.productId,
-      resolutionType: 'automatic',
-      strategy: 'latest_wins',
-      selectedAudit: conflict.recommendedResolution.selectedEntry.auditId,
-      resolvedAt: new Date().toISOString(),
-      discardedAudits: conflict.entries.slice(1).map(e => e.auditId)
-    });
+conflicts.forEach((conflict) => {
+  resolutions.push({
+    conflictId: `${conflict.productId}-${Date.now()}`,
+    productId: conflict.productId,
+    resolutionType: 'automatic',
+    strategy: 'latest_wins',
+    selectedAudit: conflict.recommendedResolution.selectedEntry.auditId,
+    resolvedAt: new Date().toISOString(),
+    discardedAudits: conflict.entries.slice(1).map((e) => e.auditId)
   });
+});
   
   return { conflicts, resolutions };
 }
 
 // Merge audit data with conflict resolution
-function mergeAuditData(audits, resolutions) {
-  const mergedData = {};
+function mergeAuditData(audits: any[], resolutions: AuditResolution[]) {
+  const mergedData: Record<number, any> = {};
   const discardedEntries = new Set();
   
   // Mark entries to discard based on resolutions
@@ -1130,6 +1164,7 @@ function Sidebar({ current, setCurrent, user, onLogout }: { current: string; set
     { key: "pos", icon: ShoppingCart },
     { key: "products", icon: Package },
     { key: "inventory", icon: Boxes },
+    { key: "stocktake", icon: ClipboardCheck },
     { key: "purchases", icon: Truck },
     { key: "sales", icon: Receipt },
     { key: "suppliers", icon: Users },
@@ -1142,6 +1177,7 @@ function Sidebar({ current, setCurrent, user, onLogout }: { current: string; set
     { key: "branches", icon: Building2 },
     { key: "users", icon: Shield },
     { key: "labels", icon: Tag },
+    { key: "barcodes", icon: Barcode },
     { key: "settings", icon: Settings },
     { key: "alerts", icon: Bell },
     { key: "audit", icon: ShieldCheck },
@@ -2105,6 +2141,7 @@ function Inventory() {
 
   // Persistent storage for offline audit data
   const [offlineAudits, setOfflineAudits] = useKV("offline-audits", []);
+  const resolvedOfflineAudits = offlineAudits ?? [];
   const [pendingSyncCount, setPendingSyncCount] = useKV("pending-sync-count", 0);
   const [lastSyncTime, setLastSyncTime] = useKV("last-sync-time", null);
   const [currentAuditId, setCurrentAuditId] = useKV("current-audit-session", null);
@@ -2128,13 +2165,13 @@ function Inventory() {
 
   // Detect conflicts when audits are loaded
   useEffect(() => {
-    if (offlineAudits.length > 1) {
-      const { conflicts } = resolveAuditConflicts(offlineAudits);
+    if (resolvedOfflineAudits.length > 1) {
+      const { conflicts } = resolveAuditConflicts(resolvedOfflineAudits);
       if (conflicts.length > 0) {
         setDetectedConflicts(conflicts);
       }
     }
-  }, [offlineAudits]);
+  }, [resolvedOfflineAudits]);
 
   // Load audit session from storage if exists
   useEffect(() => {
@@ -2177,13 +2214,13 @@ function Inventory() {
   // Sync offline audit data to server
   const syncOfflineData = async () => {
     try {
-      if (offlineAudits.length === 0) {
+      if (resolvedOfflineAudits.length === 0) {
         setIsAutomaticSyncing(false);
         return;
       }
 
       // Detect and resolve conflicts before syncing
-      const { conflicts, resolutions } = resolveAuditConflicts(offlineAudits);
+      const { conflicts, resolutions } = resolveAuditConflicts(resolvedOfflineAudits);
       
       if (conflicts.length > 0) {
         // Store conflict resolutions
@@ -2197,14 +2234,14 @@ function Inventory() {
       }
 
       // Merge audit data with conflict resolution
-      const mergedData = mergeAuditData(offlineAudits, resolutions);
+      const mergedData = mergeAuditData(resolvedOfflineAudits, resolutions);
 
       // Simulate API sync
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       // In real implementation, upload merged and resolved audits to server
       console.log('Syncing audits with conflict resolution:', {
-        originalAudits: offlineAudits.length,
+        originalAudits: resolvedOfflineAudits.length,
         conflicts: conflicts.length,
         resolutions: resolutions.length,
         mergedData: mergedData.length
@@ -2219,7 +2256,7 @@ function Inventory() {
       
       setScanFeedback({
         type: 'success',
-        message: `Synced ${offlineAudits.length} audit sessions${conflicts.length > 0 ? ` (${conflicts.length} conflicts resolved)` : ''} to server`,
+        message: `Synced ${resolvedOfflineAudits.length} audit sessions${conflicts.length > 0 ? ` (${conflicts.length} conflicts resolved)` : ''} to server`,
         autoSync: true
       });
       
@@ -3051,7 +3088,7 @@ function Inventory() {
       )}
 
       {/* Offline Audits Pending Sync */}
-      {offlineAudits.length > 0 && (
+      {resolvedOfflineAudits.length > 0 && (
         <Card className="border-orange-200 bg-orange-50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-orange-800">
@@ -3066,7 +3103,7 @@ function Inventory() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {offlineAudits.map((audit) => (
+              {resolvedOfflineAudits.map((audit) => (
                 <div key={audit.id} className="flex items-center justify-between p-2 bg-white rounded border">
                   <div>
                     <div className="font-medium">{audit.id}</div>
@@ -4635,7 +4672,33 @@ function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader><CardTitle>Appearance</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <DarkModeToggle />
+          </CardContent>
+        </Card>
       </div>
+    </div>
+  );
+}
+
+// Dark Mode Toggle for Settings
+function DarkModeToggle() {
+  const { isDark, toggleDarkMode } = useDarkMode();
+  
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        {isDark ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+        <div>
+          <div className="text-sm font-medium">Dark Mode</div>
+          <div className="text-xs text-muted-foreground">
+            {isDark ? 'Currently using dark theme' : 'Currently using light theme'}
+          </div>
+        </div>
+      </div>
+      <Switch checked={isDark} onCheckedChange={toggleDarkMode} />
     </div>
   );
 }
@@ -5018,6 +5081,761 @@ function BranchManagement() {
   );
 }
 
+// Thermal Receipt Component for POS Printing
+function ThermalReceipt({ sale, onClose }: { sale: any; onClose: () => void }) {
+  const { t } = useTranslation();
+  const receiptRef = useRef<HTMLDivElement>(null);
+  
+  const printReceipt = () => {
+    const printContent = receiptRef.current;
+    if (!printContent) return;
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Receipt</title>
+          <style>
+            @page { size: 80mm auto; margin: 0; }
+            body { 
+              font-family: 'Courier New', monospace; 
+              font-size: 12px; 
+              width: 80mm; 
+              margin: 0; 
+              padding: 10px;
+            }
+            .header { text-align: center; margin-bottom: 10px; }
+            .header h1 { font-size: 16px; margin: 0; }
+            .header p { margin: 2px 0; font-size: 10px; }
+            .divider { border-top: 1px dashed #000; margin: 8px 0; }
+            .item { display: flex; justify-content: space-between; margin: 4px 0; }
+            .item-name { flex: 1; }
+            .total-row { font-weight: bold; font-size: 14px; }
+            .footer { text-align: center; margin-top: 15px; font-size: 10px; }
+            .barcode { text-align: center; margin: 10px 0; font-family: 'Libre Barcode 39', cursive; font-size: 36px; }
+          </style>
+        </head>
+        <body>
+          ${printContent.innerHTML}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
+  };
+
+  const invoiceNumber = sale?.id || `INV-${Date.now().toString().slice(-6)}`;
+  const date = new Date().toLocaleString();
+  const items = sale?.items || [];
+  const subtotal = items.reduce((sum: number, item: any) => sum + (item.price * item.qty), 0);
+  const tax = subtotal * 0.0; // No VAT for now
+  const total = subtotal + tax;
+
+  return (
+    <Dialog open={true} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Receipt className="h-5 w-5" />
+            Print Receipt
+          </DialogTitle>
+        </DialogHeader>
+        
+        {/* Receipt Preview */}
+        <div 
+          ref={receiptRef}
+          className="bg-white text-black p-4 rounded border font-mono text-xs max-h-96 overflow-y-auto"
+          style={{ width: '300px', margin: '0 auto' }}
+        >
+          <div className="text-center mb-3">
+            <h1 className="font-bold text-base">ZAM PHARMA</h1>
+            <p className="text-[10px]">Main Branch, Kabul</p>
+            <p className="text-[10px]">Tel: +93 70 123 4567</p>
+            <p className="text-[10px]">TIN: 1234567890</p>
+          </div>
+          
+          <div className="border-t border-dashed border-gray-400 my-2" />
+          
+          <div className="flex justify-between text-[10px] mb-2">
+            <span>Invoice: {invoiceNumber}</span>
+            <span>{date}</span>
+          </div>
+          
+          <div className="border-t border-dashed border-gray-400 my-2" />
+          
+          {/* Items */}
+          <div className="space-y-1">
+            {items.map((item: any, idx: number) => (
+              <div key={idx}>
+                <div className="flex justify-between">
+                  <span className="flex-1 truncate">{item.name}</span>
+                </div>
+                <div className="flex justify-between text-[10px] text-gray-600 pl-2">
+                  <span>{item.qty} x {item.price.toLocaleString()}</span>
+                  <span>{(item.qty * item.price).toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <div className="border-t border-dashed border-gray-400 my-2" />
+          
+          {/* Totals */}
+          <div className="space-y-1">
+            <div className="flex justify-between">
+              <span>Subtotal:</span>
+              <span>{subtotal.toLocaleString()} AFN</span>
+            </div>
+            {tax > 0 && (
+              <div className="flex justify-between text-[10px]">
+                <span>VAT (0%):</span>
+                <span>{tax.toLocaleString()} AFN</span>
+              </div>
+            )}
+            <div className="flex justify-between font-bold text-sm">
+              <span>TOTAL:</span>
+              <span>{total.toLocaleString()} AFN</span>
+            </div>
+          </div>
+          
+          <div className="border-t border-dashed border-gray-400 my-2" />
+          
+          {/* Payment Info */}
+          <div className="text-[10px] space-y-1">
+            <div className="flex justify-between">
+              <span>Payment:</span>
+              <span>Cash</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Received:</span>
+              <span>{total.toLocaleString()} AFN</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Change:</span>
+              <span>0 AFN</span>
+            </div>
+          </div>
+          
+          <div className="border-t border-dashed border-gray-400 my-2" />
+          
+          {/* Barcode */}
+          <div className="text-center my-3">
+            <div className="flex justify-center">
+              {invoiceNumber.split('').map((char, i) => (
+                <div key={i} className={`${i % 2 === 0 ? 'bg-black' : 'bg-white'}`} style={{ width: '2px', height: '30px' }} />
+              ))}
+            </div>
+            <p className="text-[10px] mt-1">{invoiceNumber}</p>
+          </div>
+          
+          {/* Footer */}
+          <div className="text-center text-[10px] mt-3">
+            <p>Thank you for your purchase!</p>
+            <p>Please keep this receipt for returns</p>
+            <p className="mt-2 text-gray-500">Powered by ZamPharma POS</p>
+          </div>
+        </div>
+        
+        <div className="flex gap-2 mt-4">
+          <Button onClick={printReceipt} className="flex-1">
+            <Printer className="h-4 w-4 mr-2" />
+            Print Receipt
+          </Button>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Barcode Generator Component
+function BarcodeGenerator() {
+  const { t } = useTranslation();
+  const [barcodeValue, setBarcodeValue] = useState('');
+  const [barcodeType, setBarcodeType] = useState('code128');
+  const [generatedBarcodes, setGeneratedBarcodes] = useState<any[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [quantity, setQuantity] = useState(1);
+  
+  const generateBarcode = (value: string) => {
+    // Simple barcode pattern generator
+    const binary = value.split('').map((char, i) => {
+      const code = char.charCodeAt(0);
+      return ((code + i) % 2 === 0 ? '1' : '0') + ((code + i + 1) % 2 === 0 ? '1' : '0');
+    }).join('');
+    return binary;
+  };
+  
+  const handleGenerate = () => {
+    if (!barcodeValue.trim()) return;
+    
+    const newBarcode = {
+      id: Date.now(),
+      value: barcodeValue,
+      type: barcodeType,
+      pattern: generateBarcode(barcodeValue),
+      product: selectedProduct,
+      quantity: quantity,
+      createdAt: new Date().toISOString()
+    };
+    
+    setGeneratedBarcodes([newBarcode, ...generatedBarcodes]);
+    setBarcodeValue('');
+    setQuantity(1);
+  };
+  
+  const handleGenerateForProduct = (product: any) => {
+    const code = `ZP${product.id.toString().padStart(6, '0')}`;
+    const newBarcode = {
+      id: Date.now(),
+      value: code,
+      type: 'code128',
+      pattern: generateBarcode(code),
+      product: product,
+      quantity: 1,
+      createdAt: new Date().toISOString()
+    };
+    setGeneratedBarcodes([newBarcode, ...generatedBarcodes]);
+  };
+  
+  const printBarcodes = (barcode: any) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    
+    let labelsHtml = '';
+    for (let i = 0; i < barcode.quantity; i++) {
+      labelsHtml += `
+        <div style="display: inline-block; width: 50mm; height: 25mm; border: 1px solid #ccc; margin: 2mm; padding: 2mm; text-align: center;">
+          <div style="font-size: 8px; font-weight: bold; margin-bottom: 2px;">
+            ${barcode.product?.name || 'Product'}
+          </div>
+          <div style="display: flex; justify-content: center; margin: 3px 0;">
+            ${barcode.pattern.split('').map((b: string) => 
+              `<div style="width: 1px; height: 20px; background: ${b === '1' ? '#000' : '#fff'};"></div>`
+            ).join('')}
+          </div>
+          <div style="font-size: 10px; font-family: monospace;">
+            ${barcode.value}
+          </div>
+          ${barcode.product?.price ? `<div style="font-size: 9px; font-weight: bold;">${barcode.product.price} AFN</div>` : ''}
+        </div>
+      `;
+    }
+    
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Barcode Labels</title>
+          <style>
+            @page { size: A4; margin: 10mm; }
+            body { font-family: Arial, sans-serif; }
+          </style>
+        </head>
+        <body>${labelsHtml}</body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
+  };
+
+  return (
+    <div className="p-4 space-y-4">
+      <SectionHeader 
+        icon={Barcode} 
+        title="Barcode Generator" 
+        extra={
+          <Badge variant="secondary">{generatedBarcodes.length} barcodes</Badge>
+        }
+      />
+      
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Generator Form */}
+        <Card className="lg:col-span-1">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Plus className="h-5 w-5" />
+              Generate New Barcode
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Barcode Value</Label>
+              <Input
+                placeholder="Enter barcode value or product code"
+                value={barcodeValue}
+                onChange={(e) => setBarcodeValue(e.target.value)}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Barcode Type</Label>
+              <Select value={barcodeType} onValueChange={setBarcodeType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="code128">Code 128</SelectItem>
+                  <SelectItem value="code39">Code 39</SelectItem>
+                  <SelectItem value="ean13">EAN-13</SelectItem>
+                  <SelectItem value="upc">UPC-A</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Quantity</Label>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="outline" 
+                  size="icon"
+                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                >
+                  <Minus className="h-4 w-4" />
+                </Button>
+                <Input 
+                  type="number" 
+                  value={quantity} 
+                  onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                  className="w-20 text-center"
+                />
+                <Button 
+                  variant="outline" 
+                  size="icon"
+                  onClick={() => setQuantity(quantity + 1)}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            
+            <Button onClick={handleGenerate} className="w-full" disabled={!barcodeValue.trim()}>
+              <Barcode className="h-4 w-4 mr-2" />
+              Generate Barcode
+            </Button>
+            
+            <Separator />
+            
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Quick Generate from Inventory</Label>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {demoProducts.slice(0, 5).map((product) => (
+                  <div 
+                    key={product.id}
+                    className="flex items-center justify-between p-2 rounded border hover:bg-muted cursor-pointer"
+                    onClick={() => handleGenerateForProduct(product)}
+                  >
+                    <div>
+                      <div className="text-sm font-medium">{product.name}</div>
+                      <div className="text-xs text-muted-foreground">{product.price} AFN</div>
+                    </div>
+                    <Button variant="ghost" size="sm">
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        {/* Generated Barcodes */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Hash className="h-5 w-5" />
+              Generated Barcodes
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {generatedBarcodes.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Barcode className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No barcodes generated yet</p>
+                <p className="text-sm">Use the form to create new barcodes</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {generatedBarcodes.map((barcode) => (
+                  <div key={barcode.id} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-medium">{barcode.product?.name || 'Custom Barcode'}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {barcode.type.toUpperCase()} • Qty: {barcode.quantity}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="icon" onClick={() => printBarcodes(barcode)}>
+                        <Printer className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    
+                    {/* Barcode Visual */}
+                    <div className="bg-white p-3 rounded border flex flex-col items-center">
+                      <div className="flex">
+                        {barcode.pattern.split('').map((b: string, i: number) => (
+                          <div 
+                            key={i}
+                            style={{ 
+                              width: '2px', 
+                              height: '40px', 
+                              backgroundColor: b === '1' ? '#000' : '#fff' 
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <div className="mt-2 font-mono text-sm">{barcode.value}</div>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="flex-1"
+                        onClick={() => printBarcodes(barcode)}
+                      >
+                        <Printer className="h-4 w-4 mr-1" />
+                        Print {barcode.quantity}
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setGeneratedBarcodes(generatedBarcodes.filter(b => b.id !== barcode.id))}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// Stock Take / Physical Inventory Count Module
+function StockTake() {
+  const { t } = useTranslation();
+  const [stockTakes, setStockTakes] = useState<any[]>([]);
+  const [activeCount, setActiveCount] = useState<any>(null);
+  const [countItems, setCountItems] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showNewDialog, setShowNewDialog] = useState(false);
+  
+  const startNewCount = (name: string, location: string) => {
+    const newCount = {
+      id: Date.now(),
+      name: name || `Stock Take ${new Date().toLocaleDateString()}`,
+      location: location || 'Main Store',
+      status: 'in-progress',
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      itemsCounted: 0,
+      totalVariance: 0,
+      items: demoProducts.map(p => ({
+        productId: p.id,
+        productName: p.name,
+        systemQty: p.stock,
+        countedQty: null,
+        variance: null,
+        notes: ''
+      }))
+    };
+    
+    setActiveCount(newCount);
+    setCountItems(newCount.items);
+    setShowNewDialog(false);
+  };
+  
+  const updateCount = (productId: number, countedQty: number, notes?: string) => {
+    setCountItems(items => items.map(item => {
+      if (item.productId === productId) {
+        const variance = countedQty - item.systemQty;
+        return { 
+          ...item, 
+          countedQty, 
+          variance,
+          notes: notes !== undefined ? notes : item.notes 
+        };
+      }
+      return item;
+    }));
+  };
+  
+  const completeCount = () => {
+    if (!activeCount) return;
+    
+    const completedCount = {
+      ...activeCount,
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      itemsCounted: countItems.filter(i => i.countedQty !== null).length,
+      totalVariance: countItems.reduce((sum, i) => sum + (i.variance || 0), 0),
+      items: countItems
+    };
+    
+    setStockTakes([completedCount, ...stockTakes]);
+    setActiveCount(null);
+    setCountItems([]);
+  };
+  
+  const cancelCount = () => {
+    setActiveCount(null);
+    setCountItems([]);
+  };
+  
+  const filteredItems = countItems.filter(item => 
+    item.productName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  
+  const countedItems = countItems.filter(i => i.countedQty !== null).length;
+  const totalItems = countItems.length;
+  const totalVariance = countItems.reduce((sum, i) => sum + Math.abs(i.variance || 0), 0);
+  const varianceItems = countItems.filter(i => i.variance !== null && i.variance !== 0).length;
+
+  return (
+    <div className="p-4 space-y-4">
+      <SectionHeader 
+        icon={ClipboardCheck} 
+        title="Stock Take / Physical Count" 
+        extra={
+          !activeCount && (
+            <Button onClick={() => setShowNewDialog(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Stock Take
+            </Button>
+          )
+        }
+      />
+      
+      {/* New Stock Take Dialog */}
+      <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start New Stock Take</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const form = e.target as HTMLFormElement;
+            const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+            const location = (form.elements.namedItem('location') as HTMLInputElement).value;
+            startNewCount(name, location);
+          }}>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Count Name</Label>
+                <Input id="name" name="name" placeholder="e.g., Monthly Stock Take - January" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="location">Location</Label>
+                <Select name="location" defaultValue="main">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="main">Main Store</SelectItem>
+                    <SelectItem value="warehouse">Warehouse</SelectItem>
+                    <SelectItem value="shelf-a">Shelf A</SelectItem>
+                    <SelectItem value="shelf-b">Shelf B</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-2">
+                <Button type="submit" className="flex-1">
+                  <ClipboardCheck className="h-4 w-4 mr-2" />
+                  Start Counting
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setShowNewDialog(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Active Count */}
+      {activeCount ? (
+        <div className="space-y-4">
+          {/* Progress Header */}
+          <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="font-semibold text-lg">{activeCount.name}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Started: {new Date(activeCount.startedAt).toLocaleString()} • {activeCount.location}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={cancelCount}>
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </Button>
+                  <Button onClick={completeCount} disabled={countedItems === 0}>
+                    <FileCheck className="h-4 w-4 mr-2" />
+                    Complete Count
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-4 gap-4">
+                <div className="text-center p-3 bg-white dark:bg-background rounded-lg">
+                  <div className="text-2xl font-bold">{countedItems}/{totalItems}</div>
+                  <div className="text-xs text-muted-foreground">Items Counted</div>
+                </div>
+                <div className="text-center p-3 bg-white dark:bg-background rounded-lg">
+                  <div className="text-2xl font-bold">{Math.round((countedItems / totalItems) * 100)}%</div>
+                  <div className="text-xs text-muted-foreground">Progress</div>
+                </div>
+                <div className="text-center p-3 bg-white dark:bg-background rounded-lg">
+                  <div className="text-2xl font-bold text-orange-600">{varianceItems}</div>
+                  <div className="text-xs text-muted-foreground">Variances Found</div>
+                </div>
+                <div className="text-center p-3 bg-white dark:bg-background rounded-lg">
+                  <div className={`text-2xl font-bold ${totalVariance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    {totalVariance > 0 ? `-${totalVariance}` : '0'}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Total Variance</div>
+                </div>
+              </div>
+              
+              <Progress value={(countedItems / totalItems) * 100} className="mt-3" />
+            </CardContent>
+          </Card>
+          
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          
+          {/* Count Items */}
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-medium">Product</th>
+                      <th className="px-4 py-3 text-center text-sm font-medium">System Qty</th>
+                      <th className="px-4 py-3 text-center text-sm font-medium">Counted Qty</th>
+                      <th className="px-4 py-3 text-center text-sm font-medium">Variance</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredItems.map((item) => (
+                      <tr key={item.productId} className="border-t hover:bg-muted/50">
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{item.productName}</div>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge variant="outline">{item.systemQty}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Input
+                            type="number"
+                            placeholder="Count"
+                            value={item.countedQty ?? ''}
+                            onChange={(e) => updateCount(item.productId, parseInt(e.target.value) || 0)}
+                            className="w-24 mx-auto text-center"
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {item.variance !== null && (
+                            <Badge variant={item.variance === 0 ? 'default' : item.variance > 0 ? 'secondary' : 'destructive'}>
+                              {item.variance > 0 ? '+' : ''}{item.variance}
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Input
+                            placeholder="Add note..."
+                            value={item.notes}
+                            onChange={(e) => updateCount(item.productId, item.countedQty || 0, e.target.value)}
+                            className="w-40"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        /* Stock Take History */
+        <div className="space-y-4">
+          {stockTakes.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <PackageCheck className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-50" />
+                <h3 className="font-medium mb-1">No Stock Takes Yet</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Start a new stock take to reconcile your physical inventory
+                </p>
+                <Button onClick={() => setShowNewDialog(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Start First Stock Take
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {stockTakes.map((st) => (
+                <Card key={st.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold">{st.name}</h3>
+                        <div className="text-sm text-muted-foreground">
+                          {st.location} • Completed: {new Date(st.completedAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-center">
+                          <div className="font-bold">{st.itemsCounted}</div>
+                          <div className="text-xs text-muted-foreground">Items</div>
+                        </div>
+                        <div className="text-center">
+                          <div className={`font-bold ${st.totalVariance !== 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            {st.totalVariance > 0 ? '+' : ''}{st.totalVariance}
+                          </div>
+                          <div className="text-xs text-muted-foreground">Variance</div>
+                        </div>
+                        <Badge variant={st.status === 'completed' ? 'default' : 'secondary'}>
+                          {st.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Print Labels Component
 function PrintLabels() {
   const { t } = useTranslation();
@@ -5309,6 +6127,10 @@ const RouteView = ({ route }) => {
       return <UserManagement/>;
     case "labels":
       return <PrintLabels/>;
+    case "barcodes":
+      return <BarcodeGenerator/>;
+    case "stocktake":
+      return <StockTake/>;
     case "settings":
       return <SettingsPage/>;
     case "alerts":

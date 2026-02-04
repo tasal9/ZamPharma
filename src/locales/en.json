@@ -65,6 +65,7 @@
     "pos": "POS",
     "products": "Products",
     "inventory": "Inventory",
+    "stocktake": "Stock Take",
     "purchases": "Purchases",
     "sales": "Sales",
     "suppliers": "Suppliers",
@@ -77,6 +78,7 @@
     "branches": "Branches",
     "users": "Users",
     "labels": "Print Labels",
+    "barcodes": "Barcodes",
     "settings": "Settings",
     "alerts": "Alerts",
     "audit": "Audit Log"
