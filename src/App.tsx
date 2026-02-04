@@ -3713,6 +3713,226 @@ function Customers() {
   );
 }
 
+// Drug Interaction Checker Component
+function DrugInteractionChecker({ medications = [], onCheck }: { medications?: any[]; onCheck?: () => void }) {
+  const [drugs, setDrugs] = useState<string[]>(medications.map(m => m.productName || m.name || ''));
+  const [newDrug, setNewDrug] = useState('');
+  const [interactions, setInteractions] = useState<any[]>([]);
+  const [isChecking, setIsChecking] = useState(false);
+  const [hasChecked, setHasChecked] = useState(false);
+  
+  // Common drug interactions database (simplified for demo)
+  const interactionsDB = [
+    { drugs: ['Warfarin', 'Aspirin'], severity: 'high', description: 'Increased risk of bleeding. Combination requires close monitoring of INR and bleeding symptoms.' },
+    { drugs: ['Warfarin', 'Ibuprofen'], severity: 'high', description: 'NSAIDs increase anticoagulant effect and risk of GI bleeding.' },
+    { drugs: ['Metformin', 'Alcohol'], severity: 'moderate', description: 'Alcohol increases risk of lactic acidosis with metformin.' },
+    { drugs: ['Lisinopril', 'Potassium'], severity: 'moderate', description: 'ACE inhibitors can increase potassium levels. Monitor serum potassium.' },
+    { drugs: ['Ciprofloxacin', 'Antacids'], severity: 'moderate', description: 'Antacids reduce ciprofloxacin absorption. Take 2 hours apart.' },
+    { drugs: ['Simvastatin', 'Grapefruit'], severity: 'moderate', description: 'Grapefruit increases statin levels, increasing risk of muscle damage.' },
+    { drugs: ['Fluoxetine', 'Tramadol'], severity: 'high', description: 'Risk of serotonin syndrome. Avoid combination.' },
+    { drugs: ['Methotrexate', 'NSAIDs'], severity: 'high', description: 'NSAIDs can reduce methotrexate clearance, increasing toxicity.' },
+    { drugs: ['Digoxin', 'Amiodarone'], severity: 'high', description: 'Amiodarone increases digoxin levels. Reduce digoxin dose by 50%.' },
+    { drugs: ['Clopidogrel', 'Omeprazole'], severity: 'moderate', description: 'PPIs may reduce clopidogrel effectiveness. Consider alternative PPI.' },
+    { drugs: ['Paracetamol', 'Amoxicillin'], severity: 'low', description: 'No significant interaction. Safe to use together.' },
+    { drugs: ['Cetirizine', 'Paracetamol'], severity: 'low', description: 'No significant interaction. Safe to use together.' },
+  ];
+  
+  const checkInteractions = () => {
+    setIsChecking(true);
+    
+    // Simulate API call
+    setTimeout(() => {
+      const foundInteractions: any[] = [];
+      
+      for (let i = 0; i < drugs.length; i++) {
+        for (let j = i + 1; j < drugs.length; j++) {
+          const drug1 = drugs[i].toLowerCase();
+          const drug2 = drugs[j].toLowerCase();
+          
+          // Check against database
+          for (const interaction of interactionsDB) {
+            const [d1, d2] = interaction.drugs.map(d => d.toLowerCase());
+            if ((drug1.includes(d1) && drug2.includes(d2)) || 
+                (drug1.includes(d2) && drug2.includes(d1)) ||
+                (d1.includes(drug1) && d2.includes(drug2)) ||
+                (d1.includes(drug2) && d2.includes(drug1))) {
+              foundInteractions.push({
+                ...interaction,
+                drugPair: [drugs[i], drugs[j]]
+              });
+            }
+          }
+        }
+      }
+      
+      setInteractions(foundInteractions);
+      setIsChecking(false);
+      setHasChecked(true);
+      if (onCheck) onCheck();
+    }, 800);
+  };
+  
+  const addDrug = () => {
+    if (newDrug.trim() && !drugs.includes(newDrug.trim())) {
+      setDrugs([...drugs, newDrug.trim()]);
+      setNewDrug('');
+      setHasChecked(false);
+    }
+  };
+  
+  const removeDrug = (index: number) => {
+    setDrugs(drugs.filter((_, i) => i !== index));
+    setHasChecked(false);
+  };
+  
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'high': return 'bg-red-100 border-red-300 text-red-800';
+      case 'moderate': return 'bg-orange-100 border-orange-300 text-orange-800';
+      case 'low': return 'bg-green-100 border-green-300 text-green-800';
+      default: return 'bg-gray-100 border-gray-300 text-gray-800';
+    }
+  };
+  
+  const getSeverityBadge = (severity: string) => {
+    switch (severity) {
+      case 'high': return <Badge variant="destructive">High Risk</Badge>;
+      case 'moderate': return <Badge variant="secondary" className="bg-orange-500 text-white">Moderate</Badge>;
+      case 'low': return <Badge variant="outline" className="border-green-500 text-green-600">Low</Badge>;
+      default: return <Badge variant="outline">Unknown</Badge>;
+    }
+  };
+  
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <AlertTriangle className="h-5 w-5 text-orange-500" />
+          Drug Interaction Checker
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Drug Input */}
+        <div className="flex gap-2">
+          <Input
+            placeholder="Enter medication name..."
+            value={newDrug}
+            onChange={(e) => setNewDrug(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addDrug()}
+          />
+          <Button onClick={addDrug} variant="outline">
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+        
+        {/* Drug List */}
+        {drugs.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {drugs.map((drug, index) => (
+              <Badge key={index} variant="secondary" className="px-3 py-1 flex items-center gap-1">
+                <Pill className="h-3 w-3" />
+                {drug}
+                <button onClick={() => removeDrug(index)} className="ml-1 hover:text-red-500">
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+        
+        {/* Check Button */}
+        <Button 
+          onClick={checkInteractions} 
+          disabled={drugs.length < 2 || isChecking}
+          className="w-full"
+        >
+          {isChecking ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Checking Interactions...
+            </>
+          ) : (
+            <>
+              <Search className="h-4 w-4 mr-2" />
+              Check for Interactions ({drugs.length} drugs)
+            </>
+          )}
+        </Button>
+        
+        {/* Results */}
+        {hasChecked && (
+          <div className="space-y-3">
+            <Separator />
+            
+            {interactions.length === 0 ? (
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600" />
+                <div>
+                  <div className="font-medium text-green-800">No Interactions Found</div>
+                  <div className="text-sm text-green-600">The selected medications appear safe to use together.</div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-sm font-medium text-red-600">
+                  {interactions.length} Potential Interaction{interactions.length > 1 ? 's' : ''} Found
+                </div>
+                
+                {interactions.map((interaction, index) => (
+                  <div 
+                    key={index} 
+                    className={`p-3 border rounded-lg ${getSeverityColor(interaction.severity)}`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <AlertOctagon className="h-4 w-4" />
+                        <span className="font-medium">
+                          {interaction.drugPair[0]} + {interaction.drugPair[1]}
+                        </span>
+                      </div>
+                      {getSeverityBadge(interaction.severity)}
+                    </div>
+                    <p className="text-sm">{interaction.description}</p>
+                  </div>
+                ))}
+                
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                  <div className="flex items-center gap-2 font-medium mb-1">
+                    <Stethoscope className="h-4 w-4" />
+                    Clinical Note
+                  </div>
+                  Always consult with a healthcare professional before making medication decisions. 
+                  This tool provides general guidance and may not cover all possible interactions.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Quick Examples */}
+        {drugs.length === 0 && (
+          <div className="text-xs text-muted-foreground">
+            <div className="mb-2">Quick examples:</div>
+            <div className="flex flex-wrap gap-1">
+              {['Warfarin', 'Aspirin', 'Metformin', 'Lisinopril', 'Amoxicillin'].map((drug) => (
+                <Button 
+                  key={drug}
+                  variant="ghost" 
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => setDrugs([...drugs, drug])}
+                >
+                  + {drug}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function Prescriptions() {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -3804,13 +4024,23 @@ function Prescriptions() {
         </Card>
       </div>
 
-      <DataTable 
-        columns={cols} 
-        data={prescriptions} 
-        onEdit={(row) => { setSelectedRx(row); setOpen(true); }}
-        onDelete={(row) => setPrescriptions(prescriptions.filter(rx => rx.id !== row.id))}
-        onView={(row) => { setSelectedRx(row); setViewMode(true); }}
-      />
+      {/* Main Content with Drug Interaction Checker Sidebar */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
+          <DataTable 
+            columns={cols} 
+            data={prescriptions} 
+            onEdit={(row) => { setSelectedRx(row); setOpen(true); }}
+            onDelete={(row) => setPrescriptions(prescriptions.filter(rx => rx.id !== row.id))}
+            onView={(row) => { setSelectedRx(row); setViewMode(true); }}
+          />
+        </div>
+        
+        {/* Drug Interaction Checker */}
+        <div className="lg:col-span-1">
+          <DrugInteractionChecker />
+        </div>
+      </div>
       
       <EntityForm 
         open={open} 
