@@ -3912,11 +3912,626 @@ function SettingsPage() {
 }
 
 function Alerts() {
+  const { t } = useTranslation();
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={Bell} title="System Alerts" />
-      <DataTable columns={[{key:"type",label:"Type"},{key:"message",label:"Message"},{key:"severity",label:"Severity"}]} data={demoAlerts} />
+      <SectionHeader icon={Bell} title={t('alerts.title')} />
+      <div className="grid gap-4">
+        {demoAlerts.map((alert) => (
+          <Card key={alert.id} className={`border-l-4 ${alert.severity === 'high' ? 'border-l-red-500' : 'border-l-orange-500'}`}>
+            <CardContent className="p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className={`h-5 w-5 ${alert.severity === 'high' ? 'text-red-500' : 'text-orange-500'}`} />
+                <div>
+                  <div className="font-medium capitalize">{t(`alerts.${alert.type}`)}</div>
+                  <div className="text-sm text-muted-foreground">{alert.type === 'expiry' ? t('alerts.expiringItems', { count: 10 }) : t('alerts.lowStockItems', { count: 7 })}</div>
+                </div>
+              </div>
+              <Badge variant={alert.severity === 'high' ? 'destructive' : 'secondary'}>{alert.severity}</Badge>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
+  );
+}
+
+// User Management Component
+function UserManagement() {
+  const { t } = useTranslation();
+  const [users, setUsers] = useState(demoUsers);
+  const [open, setOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const { auditLogs } = useAuth();
+
+  const cols = [
+    { key: "username", label: t('users.username') },
+    { key: "name", label: t('common.name') },
+    { key: "role", label: t('users.role'), render: (v) => (
+      <Badge variant="outline">{t(`users.roles.${v}`)}</Badge>
+    )},
+    { key: "email", label: t('common.email') },
+    { key: "lastLogin", label: t('users.lastLogin') },
+    { key: "status", label: t('common.status'), render: (v) => (
+      <Badge variant={v === 'active' ? 'default' : 'secondary'}>{v}</Badge>
+    )},
+  ];
+
+  const fields = [
+    { name: "username", label: t('users.username') },
+    { name: "name", label: t('common.name') },
+    { name: "email", label: t('common.email') },
+    { name: "role", label: t('users.role'), type: "select", options: [
+      { value: "admin", label: t('users.roles.admin') },
+      { value: "manager", label: t('users.roles.manager') },
+      { value: "cashier", label: t('users.roles.cashier') },
+      { value: "inventory", label: t('users.roles.inventory') },
+      { value: "accountant", label: t('users.roles.accountant') },
+    ]},
+    { name: "password", label: t('users.password'), type: "password" },
+  ];
+
+  const handleSubmit = (data) => {
+    if (selectedUser) {
+      setUsers(users.map(u => u.id === selectedUser.id ? { ...u, ...data } : u));
+    } else {
+      const newUser = {
+        id: users.length + 1,
+        status: "active",
+        lastLogin: "-",
+        permissions: data.role === 'admin' ? ['all'] : ['pos_access'],
+        ...data
+      };
+      setUsers([...users, newUser]);
+    }
+    setOpen(false);
+    setSelectedUser(null);
+  };
+
+  const auditCols = [
+    { key: "timestamp", label: t('users.timestamp') },
+    { key: "username", label: t('users.username') },
+    { key: "action", label: t('users.action'), render: (v) => (
+      <Badge variant="outline">{v}</Badge>
+    )},
+    { key: "details", label: t('common.description') },
+    { key: "ipAddress", label: t('users.ipAddress') },
+  ];
+
+  return (
+    <div className="p-4 space-y-4">
+      <SectionHeader 
+        icon={Shield} 
+        title={t('users.title')} 
+        cta={
+          <Button onClick={() => { setSelectedUser(null); setOpen(true); }}>
+            <UserPlus className="h-4 w-4 mr-2"/>{t('users.newUser')}
+          </Button>
+        }
+      />
+      
+      <Tabs defaultValue="users">
+        <TabsList>
+          <TabsTrigger value="users">Users</TabsTrigger>
+          <TabsTrigger value="roles">{t('users.permissions')}</TabsTrigger>
+          <TabsTrigger value="audit">{t('users.auditLog')}</TabsTrigger>
+          <TabsTrigger value="sessions">{t('users.sessionManagement')}</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="users" className="mt-4">
+          <DataTable 
+            columns={cols} 
+            data={users}
+            onEdit={(row) => { setSelectedUser(row); setOpen(true); }}
+            onDelete={(row) => row.role !== 'admin' && setUsers(users.filter(u => u.id !== row.id))}
+          />
+        </TabsContent>
+        
+        <TabsContent value="roles" className="mt-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            {['cashier', 'manager', 'inventory', 'accountant'].map(role => (
+              <Card key={role}>
+                <CardHeader>
+                  <CardTitle className="text-base">{t(`users.roles.${role}`)}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {['pos_access', 'inventory_manage', 'products_manage', 'suppliers_manage', 'reports_view', 'settings_manage'].map(perm => (
+                    <div key={perm} className="flex items-center justify-between">
+                      <Label className="text-sm">{t(`users.permissions_list.${perm}`)}</Label>
+                      <Switch defaultChecked={
+                        (role === 'cashier' && perm === 'pos_access') ||
+                        (role === 'manager' && ['pos_access', 'inventory_manage', 'reports_view'].includes(perm)) ||
+                        (role === 'inventory' && ['inventory_manage', 'products_manage'].includes(perm)) ||
+                        (role === 'accountant' && ['reports_view'].includes(perm))
+                      } />
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="audit" className="mt-4">
+          <DataTable columns={auditCols} data={auditLogs || demoAuditLogs} />
+        </TabsContent>
+        
+        <TabsContent value="sessions" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('users.activeSessions')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {users.filter(u => u.status === 'active').map(user => (
+                  <div key={user.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
+                        <UserCircle2 className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <div className="font-medium">{user.name}</div>
+                        <div className="text-xs text-muted-foreground">Last login: {user.lastLogin}</div>
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm">
+                      <LogOut className="h-4 w-4 mr-1"/>{t('users.forceLogout')}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+      
+      <EntityForm 
+        open={open} 
+        onOpenChange={setOpen} 
+        title={selectedUser ? "Edit User" : t('users.newUser')} 
+        fields={fields} 
+        onSubmit={handleSubmit}
+        defaults={selectedUser || {}}
+      />
+    </div>
+  );
+}
+
+// Branch Management Component
+function BranchManagement() {
+  const { t } = useTranslation();
+  const [branches, setBranches] = useState(demoBranches);
+  const [transfers, setTransfers] = useState(demoStockTransfers);
+  const [currentBranch, setCurrentBranch] = useKV('current-branch', demoBranches[0]);
+  const [open, setOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+
+  const branchCols = [
+    { key: "name", label: t('common.name') },
+    { key: "address", label: t('common.address') },
+    { key: "phone", label: t('common.phone') },
+    { key: "isMain", label: "Main", render: (v) => v ? <Badge>Main</Badge> : null },
+    { key: "status", label: t('common.status'), render: (v) => (
+      <Badge variant={v === 'active' ? 'default' : 'secondary'}>{v}</Badge>
+    )},
+  ];
+
+  const transferCols = [
+    { key: "transferNumber", label: "Transfer #" },
+    { key: "fromBranch", label: t('branches.fromBranch') },
+    { key: "toBranch", label: t('branches.toBranch') },
+    { key: "items", label: t('returns.items') },
+    { key: "status", label: t('common.status'), render: (v) => (
+      <Badge variant={v === 'received' ? 'default' : 'secondary'}>
+        {v === 'inTransit' ? 'In Transit' : v}
+      </Badge>
+    )},
+    { key: "transferDate", label: t('common.date') },
+  ];
+
+  const branchFields = [
+    { name: "name", label: t('common.name'), full: true },
+    { name: "address", label: t('common.address'), full: true },
+    { name: "phone", label: t('common.phone') },
+  ];
+
+  const transferFields = [
+    { name: "fromBranch", label: t('branches.fromBranch'), type: "select", options: branches.map(b => ({ value: b.name, label: b.name })) },
+    { name: "toBranch", label: t('branches.toBranch'), type: "select", options: branches.map(b => ({ value: b.name, label: b.name })) },
+    { name: "items", label: t('returns.items'), type: "number" },
+  ];
+
+  const handleBranchSubmit = (data) => {
+    const newBranch = {
+      id: branches.length + 1,
+      isMain: false,
+      status: 'active',
+      ...data
+    };
+    setBranches([...branches, newBranch]);
+    setOpen(false);
+  };
+
+  const handleTransferSubmit = (data) => {
+    const newTransfer = {
+      id: transfers.length + 1,
+      transferNumber: `TR-${String(transfers.length + 3).padStart(3, '0')}`,
+      status: 'inTransit',
+      transferDate: new Date().toISOString().split('T')[0],
+      ...data
+    };
+    setTransfers([...transfers, newTransfer]);
+    setTransferOpen(false);
+  };
+
+  return (
+    <div className="p-4 space-y-4">
+      <SectionHeader 
+        icon={Building2} 
+        title={t('branches.title')} 
+        cta={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setTransferOpen(true)}>
+              <ArrowRightLeft className="h-4 w-4 mr-2"/>{t('branches.newTransfer')}
+            </Button>
+            <Button onClick={() => setOpen(true)}>
+              <Plus className="h-4 w-4 mr-2"/>New Branch
+            </Button>
+          </div>
+        }
+      />
+      
+      {/* Current Branch Card */}
+      <Card className="border-2 border-primary">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Store className="h-6 w-6 text-primary" />
+              <div>
+                <div className="text-sm text-muted-foreground">{t('branches.currentBranch')}</div>
+                <div className="font-bold text-lg">{currentBranch?.name}</div>
+              </div>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">{t('branches.switchBranch')}</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                {branches.map(branch => (
+                  <DropdownMenuItem 
+                    key={branch.id} 
+                    onClick={() => setCurrentBranch(branch)}
+                    className={currentBranch?.id === branch.id ? 'bg-muted' : ''}
+                  >
+                    {branch.name}
+                    {currentBranch?.id === branch.id && <Check className="h-4 w-4 ml-auto"/>}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Tabs defaultValue="branches">
+        <TabsList>
+          <TabsTrigger value="branches">Branches</TabsTrigger>
+          <TabsTrigger value="transfers">{t('branches.stockTransfer')}</TabsTrigger>
+          <TabsTrigger value="history">{t('branches.transferHistory')}</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="branches" className="mt-4">
+          <DataTable 
+            columns={branchCols} 
+            data={branches}
+            onEdit={(row) => {}}
+            onDelete={(row) => !row.isMain && setBranches(branches.filter(b => b.id !== row.id))}
+          />
+        </TabsContent>
+        
+        <TabsContent value="transfers" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>New Stock Transfer</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid md:grid-cols-3 gap-4">
+                <div>
+                  <Label>From Branch</Label>
+                  <Select defaultValue={currentBranch?.name}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {branches.map(b => <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>To Branch</Label>
+                  <Select>
+                    <SelectTrigger><SelectValue placeholder="Select destination"/></SelectTrigger>
+                    <SelectContent>
+                      {branches.filter(b => b.id !== currentBranch?.id).map(b => 
+                        <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  <Button className="w-full">
+                    <ArrowRightLeft className="h-4 w-4 mr-2"/>Start Transfer
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-4">
+                <Label>Select Products to Transfer</Label>
+                <div className="border rounded-lg mt-2 p-4">
+                  <div className="text-sm text-muted-foreground text-center">Select products from inventory to add to transfer</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        <TabsContent value="history" className="mt-4">
+          <DataTable columns={transferCols} data={transfers} />
+        </TabsContent>
+      </Tabs>
+      
+      <EntityForm 
+        open={open} 
+        onOpenChange={setOpen} 
+        title="New Branch" 
+        fields={branchFields} 
+        onSubmit={handleBranchSubmit}
+        defaults={{}}
+      />
+    </div>
+  );
+}
+
+// Print Labels Component
+function PrintLabels() {
+  const { t } = useTranslation();
+  const [selectedProducts, setSelectedProducts] = useState([]);
+  const [labelSettings, setLabelSettings] = useState({
+    size: 'medium',
+    quantity: 1,
+    includePrice: true,
+    includeExpiry: true,
+    includeBarcode: true
+  });
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const toggleProduct = (product) => {
+    if (selectedProducts.find(p => p.id === product.id)) {
+      setSelectedProducts(selectedProducts.filter(p => p.id !== product.id));
+    } else {
+      setSelectedProducts([...selectedProducts, product]);
+    }
+  };
+
+  const selectAll = () => {
+    setSelectedProducts(demoProducts);
+  };
+
+  const clearSelection = () => {
+    setSelectedProducts([]);
+  };
+
+  return (
+    <div className="p-4 space-y-4">
+      <SectionHeader 
+        icon={Tag} 
+        title={t('labels.title')} 
+        cta={
+          <Button onClick={() => setPreviewOpen(true)} disabled={selectedProducts.length === 0}>
+            <Printer className="h-4 w-4 mr-2"/>{t('labels.printNow')} ({selectedProducts.length})
+          </Button>
+        }
+      />
+      
+      <div className="grid md:grid-cols-3 gap-4">
+        {/* Label Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Label Settings</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>{t('labels.labelSize')}</Label>
+              <Select value={labelSettings.size} onValueChange={(v) => setLabelSettings({ ...labelSettings, size: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="small">Small (30x20mm)</SelectItem>
+                  <SelectItem value="medium">Medium (50x25mm)</SelectItem>
+                  <SelectItem value="large">Large (70x35mm)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>{t('labels.quantity')}</Label>
+              <Input 
+                type="number" 
+                value={labelSettings.quantity} 
+                onChange={(e) => setLabelSettings({ ...labelSettings, quantity: parseInt(e.target.value) || 1 })}
+                min={1}
+                max={100}
+              />
+            </div>
+            <Separator />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>{t('labels.includePrice')}</Label>
+                <Switch 
+                  checked={labelSettings.includePrice} 
+                  onCheckedChange={(v) => setLabelSettings({ ...labelSettings, includePrice: v })}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>{t('labels.includeExpiry')}</Label>
+                <Switch 
+                  checked={labelSettings.includeExpiry} 
+                  onCheckedChange={(v) => setLabelSettings({ ...labelSettings, includeExpiry: v })}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Include Barcode</Label>
+                <Switch 
+                  checked={labelSettings.includeBarcode} 
+                  onCheckedChange={(v) => setLabelSettings({ ...labelSettings, includeBarcode: v })}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Product Selection */}
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>{t('labels.selectProducts')}</CardTitle>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={selectAll}>Select All</Button>
+                <Button variant="outline" size="sm" onClick={clearSelection}>Clear</Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {demoProducts.map(product => (
+                <div 
+                  key={product.id} 
+                  className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                    selectedProducts.find(p => p.id === product.id) ? 'border-primary bg-primary/5' : 'hover:bg-muted'
+                  }`}
+                  onClick={() => toggleProduct(product)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Checkbox checked={!!selectedProducts.find(p => p.id === product.id)} />
+                      <div>
+                        <div className="font-medium">{product.name}</div>
+                        <div className="text-xs text-muted-foreground">{product.sku} • {product.barcode}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-medium">{product.price} AFN</div>
+                      <div className="text-xs text-muted-foreground">Exp: {product.expiry}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Preview Dialog */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t('labels.preview')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              {selectedProducts.slice(0, 6).map(product => (
+                <div 
+                  key={product.id} 
+                  className={`border-2 border-dashed rounded p-2 text-center ${
+                    labelSettings.size === 'small' ? 'text-xs' : labelSettings.size === 'large' ? 'text-sm' : 'text-xs'
+                  }`}
+                >
+                  <div className="font-bold truncate">{product.name}</div>
+                  {labelSettings.includeBarcode && (
+                    <div className="my-1 bg-black h-6 flex items-center justify-center">
+                      <div className="text-white text-xs font-mono">{product.barcode}</div>
+                    </div>
+                  )}
+                  <div className="text-muted-foreground">{product.sku}</div>
+                  {labelSettings.includePrice && <div className="font-bold">{product.price} AFN</div>}
+                  {labelSettings.includeExpiry && <div className="text-xs">Exp: {product.expiry}</div>}
+                </div>
+              ))}
+            </div>
+            {selectedProducts.length > 6 && (
+              <div className="text-center text-muted-foreground">
+                +{selectedProducts.length - 6} more labels
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button className="flex-1" onClick={() => window.print()}>
+                <Printer className="h-4 w-4 mr-2"/>Print {selectedProducts.length * labelSettings.quantity} Labels
+              </Button>
+              <Button variant="outline" onClick={() => setPreviewOpen(false)}>Cancel</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Offline Queue Component
+function OfflineQueue() {
+  const { t } = useTranslation();
+  const { queue, processQueue, clearQueue, retryFailed, pendingCount } = useOfflineQueue();
+  const { isOnline } = useNetworkStatus();
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <History className="h-5 w-5"/>
+            {t('offline.transactionQueue')}
+          </CardTitle>
+          <Badge variant={pendingCount > 0 ? 'secondary' : 'default'}>
+            {pendingCount} {t('offline.pendingTransactions')}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {queue.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">
+            No pending transactions
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {queue.map(item => (
+              <div key={item.id} className="flex items-center justify-between p-3 border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <Badge variant="outline">{item.type}</Badge>
+                  <div>
+                    <div className="text-sm font-medium">Transaction #{item.id}</div>
+                    <div className="text-xs text-muted-foreground">{t('offline.queuedAt')}: {new Date(item.queuedAt).toLocaleString()}</div>
+                  </div>
+                </div>
+                <Badge variant={
+                  item.status === 'synced' ? 'default' : 
+                  item.status === 'failed' ? 'destructive' : 
+                  item.status === 'syncing' ? 'secondary' : 'outline'
+                }>
+                  {item.status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+        {queue.length > 0 && (
+          <div className="flex gap-2 mt-4">
+            <Button onClick={processQueue} disabled={!isOnline || pendingCount === 0}>
+              <RefreshCcw className="h-4 w-4 mr-2"/>{t('offline.syncNow')}
+            </Button>
+            <Button variant="outline" onClick={retryFailed}>
+              <RotateCcw className="h-4 w-4 mr-2"/>{t('offline.retryFailed')}
+            </Button>
+            <Button variant="destructive" onClick={clearQueue}>
+              <Trash2 className="h-4 w-4 mr-2"/>{t('offline.clearQueue')}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -3959,6 +4574,12 @@ const RouteView = ({ route }) => {
       return <Reports/>;
     case "accounting":
       return <Accounting/>;
+    case "branches":
+      return <BranchManagement/>;
+    case "users":
+      return <UserManagement/>;
+    case "labels":
+      return <PrintLabels/>;
     case "settings":
       return <SettingsPage/>;
     case "alerts":
