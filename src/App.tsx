@@ -2861,92 +2861,867 @@ function Inventory() {
 }
 
 function Purchases() {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [purchases, setPurchases] = useState(demoPurchases);
+  const [selectedPurchase, setSelectedPurchase] = useState(null);
+  const [viewMode, setViewMode] = useState(false);
+
+  const cols = [
+    { key: "grnNumber", label: "GRN #" },
+    { key: "supplier", label: "Supplier" },
+    { key: "supplierInvoice", label: "Invoice #" },
+    { key: "items", label: "Items" },
+    { key: "totalAmount", label: "Total", render: (v) => `${v.toLocaleString()} AFN` },
+    { key: "paymentStatus", label: "Status", render: (v) => (
+      <Badge variant={v === 'paid' ? 'default' : v === 'partial' ? 'secondary' : 'destructive'}>
+        {v.charAt(0).toUpperCase() + v.slice(1)}
+      </Badge>
+    )},
+    { key: "receivedDate", label: "Date" },
+  ];
+
+  const fields = [
+    { name: "supplier", label: "Supplier", type: "select", options: demoSuppliers.map(s => ({ value: s.name, label: s.name })), full: true },
+    { name: "supplierInvoice", label: "Supplier Invoice #" },
+    { name: "invoiceDate", label: "Invoice Date", type: "date" },
+    { name: "receivedDate", label: "Received Date", type: "date" },
+    { name: "paymentStatus", label: "Payment Status", type: "select", options: [
+      { value: "paid", label: "Paid" },
+      { value: "partial", label: "Partial" },
+      { value: "unpaid", label: "Unpaid" },
+    ]},
+    { name: "paidAmount", label: "Paid Amount", type: "number" },
+  ];
+
+  const handleSubmit = (data) => {
+    if (selectedPurchase) {
+      setPurchases(purchases.map(p => p.id === selectedPurchase.id ? { ...p, ...data } : p));
+    } else {
+      const newPurchase = {
+        id: purchases.length + 1,
+        grnNumber: `GRN-${1024 + purchases.length}`,
+        items: 0,
+        totalAmount: 0,
+        ...data
+      };
+      setPurchases([...purchases, newPurchase]);
+    }
+    setOpen(false);
+    setSelectedPurchase(null);
+  };
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={Truck} title="Purchases" cta={<Button><Plus className="h-4 w-4 mr-2"/>New GRN</Button>} />
-      <DataTable columns={[{key:"id",label:"GRN #"},{key:"supplier",label:"Supplier"},{key:"items",label:"Items"},{key:"total",label:"Total"},{key:"date",label:"Date"}]} data={[
-        {id:"GRN-1021",supplier:"Kabul Med Distributors",items:12,total:"78,500 AFN",date:"2025-08-15"},
-      ]} />
+      <SectionHeader 
+        icon={Truck} 
+        title={t('purchases.title')} 
+        cta={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => exportToCSV(purchases, 'purchases')}>
+              <FileDown className="h-4 w-4 mr-2"/>Export
+            </Button>
+            <Button onClick={() => { setSelectedPurchase(null); setOpen(true); }}>
+              <Plus className="h-4 w-4 mr-2"/>{t('purchases.newGrn')}
+            </Button>
+          </div>
+        } 
+      />
+      <DataTable 
+        columns={cols} 
+        data={purchases} 
+        onEdit={(row) => { setSelectedPurchase(row); setOpen(true); }}
+        onDelete={(row) => setPurchases(purchases.filter(p => p.id !== row.id))}
+        onView={(row) => { setSelectedPurchase(row); setViewMode(true); }}
+      />
+      <EntityForm 
+        open={open} 
+        onOpenChange={setOpen} 
+        title={selectedPurchase ? "Edit GRN" : t('purchases.newGrn')} 
+        fields={fields} 
+        onSubmit={handleSubmit}
+        defaults={selectedPurchase || {}}
+      />
+      
+      {/* View Purchase Detail Dialog */}
+      <Dialog open={viewMode} onOpenChange={setViewMode}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Purchase Details - {selectedPurchase?.grnNumber}</DialogTitle>
+          </DialogHeader>
+          {selectedPurchase && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><span className="font-medium">Supplier:</span> {selectedPurchase.supplier}</div>
+                <div><span className="font-medium">Invoice:</span> {selectedPurchase.supplierInvoice}</div>
+                <div><span className="font-medium">Received:</span> {selectedPurchase.receivedDate}</div>
+                <div><span className="font-medium">Total:</span> {selectedPurchase.totalAmount?.toLocaleString()} AFN</div>
+              </div>
+              <Separator />
+              <div>
+                <h4 className="font-medium mb-2">Items</h4>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Product</th>
+                        <th className="px-3 py-2 text-right">Qty</th>
+                        <th className="px-3 py-2 text-right">Cost</th>
+                        <th className="px-3 py-2">Batch</th>
+                        <th className="px-3 py-2">Expiry</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {demoPurchaseItems.filter(i => i.purchaseId === selectedPurchase.id).map(item => (
+                        <tr key={item.id} className="border-t">
+                          <td className="px-3 py-2">{item.productName}</td>
+                          <td className="px-3 py-2 text-right">{item.quantity}</td>
+                          <td className="px-3 py-2 text-right">{item.unitCost} AFN</td>
+                          <td className="px-3 py-2">{item.batch}</td>
+                          <td className="px-3 py-2">{item.expiry}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 function Sales() {
+  const { t } = useTranslation();
+  const [sales, setSales] = useState([
+    { id: 1, invoiceNumber: "INV-5501", customer: "Walk-in", items: 4, total: 550, date: "2026-02-04", paymentMethod: "cash" },
+    { id: 2, invoiceNumber: "INV-5502", customer: "Dr. Ahmad Clinic", items: 8, total: 1250, date: "2026-02-04", paymentMethod: "credit" },
+    { id: 3, invoiceNumber: "INV-5503", customer: "Rahimi Hospital", items: 15, total: 4500, date: "2026-02-03", paymentMethod: "bank" },
+  ]);
+  const [selectedSale, setSelectedSale] = useState(null);
+
+  const cols = [
+    { key: "invoiceNumber", label: "Invoice #" },
+    { key: "customer", label: "Customer" },
+    { key: "items", label: "Items" },
+    { key: "total", label: "Total", render: (v) => `${v.toLocaleString()} AFN` },
+    { key: "paymentMethod", label: "Payment", render: (v) => (
+      <Badge variant="outline">{v.charAt(0).toUpperCase() + v.slice(1)}</Badge>
+    )},
+    { key: "date", label: "Date" },
+  ];
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={Receipt} title="Sales Invoices" />
-      <DataTable columns={[{key:"id",label:"Invoice #"},{key:"customer",label:"Customer"},{key:"items",label:"Items"},{key:"total",label:"Total"},{key:"date",label:"Date"}]} data={[
-        {id:"INV-5501",customer:"Walk-in",items:4,total:"550 AFN",date:"2025-08-21"},
-      ]} />
+      <SectionHeader 
+        icon={Receipt} 
+        title="Sales Invoices" 
+        cta={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => exportToCSV(sales, 'sales')}>
+              <FileDown className="h-4 w-4 mr-2"/>Export
+            </Button>
+          </div>
+        }
+      />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Today's Sales</div>
+            <div className="text-2xl font-bold">{sales.filter(s => s.date === "2026-02-04").reduce((sum, s) => sum + s.total, 0).toLocaleString()} AFN</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Invoices Today</div>
+            <div className="text-2xl font-bold">{sales.filter(s => s.date === "2026-02-04").length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Cash Sales</div>
+            <div className="text-2xl font-bold">{sales.filter(s => s.paymentMethod === "cash").reduce((sum, s) => sum + s.total, 0).toLocaleString()} AFN</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Credit Sales</div>
+            <div className="text-2xl font-bold">{sales.filter(s => s.paymentMethod === "credit").reduce((sum, s) => sum + s.total, 0).toLocaleString()} AFN</div>
+          </CardContent>
+        </Card>
+      </div>
+      <DataTable 
+        columns={cols} 
+        data={sales}
+        onView={(row) => setSelectedSale(row)}
+      />
+      
+      {/* View Sale Dialog */}
+      <Dialog open={!!selectedSale} onOpenChange={() => setSelectedSale(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Invoice {selectedSale?.invoiceNumber}</DialogTitle>
+          </DialogHeader>
+          {selectedSale && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div><span className="font-medium">Customer:</span> {selectedSale.customer}</div>
+                <div><span className="font-medium">Date:</span> {selectedSale.date}</div>
+                <div><span className="font-medium">Items:</span> {selectedSale.items}</div>
+                <div><span className="font-medium">Payment:</span> {selectedSale.paymentMethod}</div>
+              </div>
+              <div className="text-xl font-bold">Total: {selectedSale.total.toLocaleString()} AFN</div>
+              <div className="flex gap-2">
+                <Button className="flex-1"><Printer className="h-4 w-4 mr-2"/>Print</Button>
+                <Button variant="outline" className="flex-1"><FileDown className="h-4 w-4 mr-2"/>Download</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 function Customers() {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [customers, setCustomers] = useState(demoCustomers);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [viewMode, setViewMode] = useState(false);
+
+  const cols = [
+    { key: "name", label: t('customers.customerName') },
+    { key: "phone", label: t('common.phone') },
+    { key: "balance", label: t('customers.balance'), render: (v) => (
+      <span className={v > 0 ? 'text-red-600 font-medium' : ''}>{v.toLocaleString()} AFN</span>
+    )},
+    { key: "creditLimit", label: t('customers.creditLimit'), render: (v) => `${v.toLocaleString()} AFN` },
+    { key: "totalPurchases", label: t('customers.totalPurchases'), render: (v) => `${v.toLocaleString()} AFN` },
+    { key: "lastPurchase", label: t('customers.lastPurchase') },
+  ];
+
+  const fields = [
+    { name: "name", label: t('customers.customerName'), full: true },
+    { name: "phone", label: t('common.phone') },
+    { name: "email", label: t('common.email') },
+    { name: "address", label: t('common.address'), full: true },
+    { name: "creditLimit", label: t('customers.creditLimit'), type: "number" },
+  ];
+
+  const paymentFields = [
+    { name: "amount", label: t('customers.paymentAmount'), type: "number", full: true },
+    { name: "method", label: t('customers.paymentMethod'), type: "select", options: [
+      { value: "cash", label: "Cash" },
+      { value: "bank", label: "Bank Transfer" },
+      { value: "mobile", label: "Mobile Money" },
+    ]},
+    { name: "reference", label: t('customers.reference') },
+  ];
+
+  const handleSubmit = (data) => {
+    if (selectedCustomer && !paymentOpen) {
+      setCustomers(customers.map(c => c.id === selectedCustomer.id ? { ...c, ...data } : c));
+    } else if (!paymentOpen) {
+      const newCustomer = {
+        id: customers.length + 1,
+        balance: 0,
+        totalPurchases: 0,
+        lastPurchase: "-",
+        ...data
+      };
+      setCustomers([...customers, newCustomer]);
+    }
+    setOpen(false);
+    setSelectedCustomer(null);
+  };
+
+  const handlePayment = (data) => {
+    if (selectedCustomer) {
+      const paymentAmount = parseFloat(data.amount) || 0;
+      setCustomers(customers.map(c => 
+        c.id === selectedCustomer.id 
+          ? { ...c, balance: Math.max(0, c.balance - paymentAmount) }
+          : c
+      ));
+    }
+    setPaymentOpen(false);
+    setSelectedCustomer(null);
+  };
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={UserCircle2} title="Customers" cta={<Button><Plus className="h-4 w-4 mr-2"/>New Customer</Button>} />
-      <DataTable columns={[{key:"name",label:"Name"},{key:"phone",label:"Phone"},{key:"balance",label:"Balance"}]} data={[
-        {id:1,name:"Walk-in",phone:"-",balance:0},
-        {id:2,name:"Dr. Ahmad Clinic",phone:"0700 000 000",balance:1200},
-      ]} />
+      <SectionHeader 
+        icon={UserCircle2} 
+        title={t('customers.title')} 
+        cta={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => exportToCSV(customers, 'customers')}>
+              <FileDown className="h-4 w-4 mr-2"/>Export
+            </Button>
+            <Button onClick={() => { setSelectedCustomer(null); setOpen(true); }}>
+              <Plus className="h-4 w-4 mr-2"/>{t('customers.newCustomer')}
+            </Button>
+          </div>
+        } 
+      />
+      
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Total Receivables</div>
+            <div className="text-2xl font-bold text-red-600">{customers.reduce((sum, c) => sum + c.balance, 0).toLocaleString()} AFN</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Total Customers</div>
+            <div className="text-2xl font-bold">{customers.length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">With Outstanding Balance</div>
+            <div className="text-2xl font-bold">{customers.filter(c => c.balance > 0).length}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <DataTable 
+        columns={cols} 
+        data={customers} 
+        onEdit={(row) => { setSelectedCustomer(row); setOpen(true); }}
+        onDelete={(row) => row.name !== 'Walk-in' && setCustomers(customers.filter(c => c.id !== row.id))}
+        onView={(row) => { setSelectedCustomer(row); setViewMode(true); }}
+      />
+      
+      <EntityForm 
+        open={open} 
+        onOpenChange={setOpen} 
+        title={selectedCustomer ? "Edit Customer" : t('customers.newCustomer')} 
+        fields={fields} 
+        onSubmit={handleSubmit}
+        defaults={selectedCustomer || {}}
+      />
+
+      {/* View Customer Details */}
+      <Dialog open={viewMode} onOpenChange={setViewMode}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Customer Details - {selectedCustomer?.name}</DialogTitle>
+          </DialogHeader>
+          {selectedCustomer && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><span className="font-medium">Phone:</span> {selectedCustomer.phone}</div>
+                <div><span className="font-medium">Email:</span> {selectedCustomer.email}</div>
+                <div><span className="font-medium">Address:</span> {selectedCustomer.address}</div>
+                <div><span className="font-medium">Credit Limit:</span> {selectedCustomer.creditLimit?.toLocaleString()} AFN</div>
+              </div>
+              <Separator />
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="text-sm text-muted-foreground">Outstanding Balance</div>
+                  <div className="text-2xl font-bold text-red-600">{selectedCustomer.balance?.toLocaleString()} AFN</div>
+                </div>
+                {selectedCustomer.balance > 0 && (
+                  <Button onClick={() => { setViewMode(false); setPaymentOpen(true); }}>
+                    <DollarSign className="h-4 w-4 mr-2"/>Receive Payment
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Receive Payment Dialog */}
+      <EntityForm 
+        open={paymentOpen} 
+        onOpenChange={setPaymentOpen} 
+        title={`Receive Payment - ${selectedCustomer?.name}`} 
+        fields={paymentFields} 
+        onSubmit={handlePayment}
+        defaults={{}}
+      />
     </div>
   );
 }
 
 function Prescriptions() {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [prescriptions, setPrescriptions] = useState(demoPrescriptions);
+  const [selectedRx, setSelectedRx] = useState(null);
+  const [viewMode, setViewMode] = useState(false);
+
+  const cols = [
+    { key: "rxNumber", label: t('prescriptions.rxNumber') },
+    { key: "doctorName", label: t('prescriptions.doctorName') },
+    { key: "patientName", label: t('prescriptions.patientName') },
+    { key: "patientPhone", label: t('common.phone') },
+    { key: "status", label: t('common.status'), render: (v) => (
+      <Badge variant={v === 'dispensed' ? 'default' : v === 'pending' ? 'secondary' : 'destructive'}>
+        {v.charAt(0).toUpperCase() + v.slice(1)}
+      </Badge>
+    )},
+    { key: "date", label: t('common.date') },
+  ];
+
+  const fields = [
+    { name: "doctorName", label: t('prescriptions.doctorName') },
+    { name: "patientName", label: t('prescriptions.patientName') },
+    { name: "patientPhone", label: t('common.phone') },
+    { name: "diagnosis", label: t('prescriptions.diagnosis'), full: true },
+  ];
+
+  const handleSubmit = (data) => {
+    if (selectedRx) {
+      setPrescriptions(prescriptions.map(rx => rx.id === selectedRx.id ? { ...rx, ...data } : rx));
+    } else {
+      const newRx = {
+        id: prescriptions.length + 1,
+        rxNumber: `RX-${1014 + prescriptions.length}`,
+        status: "pending",
+        date: new Date().toISOString().split('T')[0],
+        medications: [],
+        ...data
+      };
+      setPrescriptions([...prescriptions, newRx]);
+    }
+    setOpen(false);
+    setSelectedRx(null);
+  };
+
+  const handleDispense = (rx) => {
+    setPrescriptions(prescriptions.map(p => 
+      p.id === rx.id ? { ...p, status: 'dispensed' } : p
+    ));
+    setViewMode(false);
+  };
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={ClipboardList} title="Prescriptions" cta={<Button><Plus className="h-4 w-4 mr-2"/>New Rx</Button>} />
-      <DataTable columns={[{key:"id",label:"Rx #"},{key:"doctor",label:"Doctor"},{key:"patient",label:"Patient"},{key:"date",label:"Date"}]} data={[
-        {id:"RX-1012",doctor:"Dr. Khan",patient:"Zabi",date:"2025-08-19"},
-      ]} />
+      <SectionHeader 
+        icon={ClipboardList} 
+        title={t('prescriptions.title')} 
+        cta={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => exportToCSV(prescriptions, 'prescriptions')}>
+              <FileDown className="h-4 w-4 mr-2"/>Export
+            </Button>
+            <Button onClick={() => { setSelectedRx(null); setOpen(true); }}>
+              <Plus className="h-4 w-4 mr-2"/>{t('prescriptions.newPrescription')}
+            </Button>
+          </div>
+        } 
+      />
+      
+      {/* Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Pending</div>
+            <div className="text-2xl font-bold text-orange-600">{prescriptions.filter(rx => rx.status === 'pending').length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Dispensed Today</div>
+            <div className="text-2xl font-bold">{prescriptions.filter(rx => rx.status === 'dispensed' && rx.date === new Date().toISOString().split('T')[0]).length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground">Total This Month</div>
+            <div className="text-2xl font-bold">{prescriptions.length}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <DataTable 
+        columns={cols} 
+        data={prescriptions} 
+        onEdit={(row) => { setSelectedRx(row); setOpen(true); }}
+        onDelete={(row) => setPrescriptions(prescriptions.filter(rx => rx.id !== row.id))}
+        onView={(row) => { setSelectedRx(row); setViewMode(true); }}
+      />
+      
+      <EntityForm 
+        open={open} 
+        onOpenChange={setOpen} 
+        title={selectedRx ? "Edit Prescription" : t('prescriptions.newPrescription')} 
+        fields={fields} 
+        onSubmit={handleSubmit}
+        defaults={selectedRx || {}}
+      />
+
+      {/* View Prescription Dialog */}
+      <Dialog open={viewMode} onOpenChange={setViewMode}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Stethoscope className="h-5 w-5"/>
+              Prescription {selectedRx?.rxNumber}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedRx && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><span className="font-medium">Doctor:</span> {selectedRx.doctorName}</div>
+                <div><span className="font-medium">Patient:</span> {selectedRx.patientName}</div>
+                <div><span className="font-medium">Phone:</span> {selectedRx.patientPhone}</div>
+                <div><span className="font-medium">Date:</span> {selectedRx.date}</div>
+                <div className="col-span-2"><span className="font-medium">Diagnosis:</span> {selectedRx.diagnosis}</div>
+              </div>
+              <Separator />
+              <div>
+                <h4 className="font-medium mb-2">Medications</h4>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Medication</th>
+                        <th className="px-3 py-2">Dosage</th>
+                        <th className="px-3 py-2">Frequency</th>
+                        <th className="px-3 py-2">Duration</th>
+                        <th className="px-3 py-2 text-right">Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedRx.medications?.map((med, idx) => (
+                        <tr key={idx} className="border-t">
+                          <td className="px-3 py-2">{med.productName}</td>
+                          <td className="px-3 py-2 text-center">{med.dosage}</td>
+                          <td className="px-3 py-2 text-center">{med.frequency}</td>
+                          <td className="px-3 py-2 text-center">{med.duration}</td>
+                          <td className="px-3 py-2 text-right">{med.quantity}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {selectedRx.status === 'pending' && (
+                  <Button className="flex-1" onClick={() => handleDispense(selectedRx)}>
+                    <CheckCircle className="h-4 w-4 mr-2"/>Dispense
+                  </Button>
+                )}
+                <Button variant="outline" className="flex-1">
+                  <Printer className="h-4 w-4 mr-2"/>Print Rx
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 function Returns() {
+  const { t } = useTranslation();
+  const [salesReturns, setSalesReturns] = useState(demoSalesReturns);
+  const [purchaseReturns, setPurchaseReturns] = useState(demoPurchaseReturns);
+  const [open, setOpen] = useState(false);
+  const [returnType, setReturnType] = useState('sales');
+
+  const salesCols = [
+    { key: "returnNumber", label: t('returns.returnNumber') },
+    { key: "originalInvoice", label: t('returns.originalInvoice') },
+    { key: "customer", label: t('common.customer') },
+    { key: "reason", label: t('returns.reason'), render: (v) => t(`returns.reasons.${v}`) },
+    { key: "items", label: t('returns.items') },
+    { key: "refundAmount", label: t('returns.refundAmount'), render: (v) => `${v.toLocaleString()} AFN` },
+    { key: "status", label: t('common.status'), render: (v) => (
+      <Badge variant={v === 'approved' ? 'default' : v === 'pending' ? 'secondary' : 'destructive'}>
+        {v.charAt(0).toUpperCase() + v.slice(1)}
+      </Badge>
+    )},
+    { key: "returnDate", label: t('common.date') },
+  ];
+
+  const purchaseCols = [
+    { key: "returnNumber", label: t('returns.returnNumber') },
+    { key: "originalGrn", label: "Original GRN" },
+    { key: "supplier", label: t('common.supplier') },
+    { key: "reason", label: t('returns.reason'), render: (v) => t(`returns.reasons.${v}`) },
+    { key: "items", label: t('returns.items') },
+    { key: "refundAmount", label: t('returns.refundAmount'), render: (v) => `${v.toLocaleString()} AFN` },
+    { key: "status", label: t('common.status'), render: (v) => (
+      <Badge variant={v === 'approved' ? 'default' : v === 'pending' ? 'secondary' : 'destructive'}>
+        {v.charAt(0).toUpperCase() + v.slice(1)}
+      </Badge>
+    )},
+    { key: "returnDate", label: t('common.date') },
+  ];
+
+  const salesFields = [
+    { name: "originalInvoice", label: t('returns.originalInvoice') },
+    { name: "customer", label: t('common.customer') },
+    { name: "reason", label: t('returns.reason'), type: "select", options: [
+      { value: "expired", label: t('returns.reasons.expired') },
+      { value: "damaged", label: t('returns.reasons.damaged') },
+      { value: "wrongProduct", label: t('returns.reasons.wrongProduct') },
+      { value: "qualityIssue", label: t('returns.reasons.qualityIssue') },
+      { value: "other", label: t('returns.reasons.other') },
+    ]},
+    { name: "items", label: t('returns.items'), type: "number" },
+    { name: "refundAmount", label: t('returns.refundAmount'), type: "number" },
+  ];
+
+  const handleSubmit = (data) => {
+    if (returnType === 'sales') {
+      const newReturn = {
+        id: salesReturns.length + 1,
+        returnNumber: `SR-${String(salesReturns.length + 3).padStart(3, '0')}`,
+        status: 'pending',
+        returnDate: new Date().toISOString().split('T')[0],
+        ...data
+      };
+      setSalesReturns([...salesReturns, newReturn]);
+    } else {
+      const newReturn = {
+        id: purchaseReturns.length + 1,
+        returnNumber: `PR-${String(purchaseReturns.length + 2).padStart(3, '0')}`,
+        status: 'pending',
+        returnDate: new Date().toISOString().split('T')[0],
+        ...data
+      };
+      setPurchaseReturns([...purchaseReturns, newReturn]);
+    }
+    setOpen(false);
+  };
+
+  const approveReturn = (type, id) => {
+    if (type === 'sales') {
+      setSalesReturns(salesReturns.map(r => r.id === id ? { ...r, status: 'approved' } : r));
+    } else {
+      setPurchaseReturns(purchaseReturns.map(r => r.id === id ? { ...r, status: 'approved' } : r));
+    }
+  };
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={ArrowLeftRight} title="Returns" />
-      <Tabs defaultValue="sales">
+      <SectionHeader 
+        icon={ArrowLeftRight} 
+        title={t('returns.title')} 
+        cta={
+          <Button onClick={() => setOpen(true)}>
+            <Plus className="h-4 w-4 mr-2"/>{t('returns.newReturn')}
+          </Button>
+        }
+      />
+      <Tabs defaultValue="sales" onValueChange={setReturnType}>
         <TabsList>
-          <TabsTrigger value="sales">Sales Returns</TabsTrigger>
-          <TabsTrigger value="purchase">Purchase Returns</TabsTrigger>
+          <TabsTrigger value="sales">{t('returns.salesReturns')}</TabsTrigger>
+          <TabsTrigger value="purchase">{t('returns.purchaseReturns')}</TabsTrigger>
         </TabsList>
         <TabsContent value="sales" className="mt-4">
-          <DataTable columns={[{key:"id",label:"Return #"},{key:"ref",label:"Invoice #"},{key:"items",label:"Items"},{key:"amount",label:"Amount"},{key:"date",label:"Date"}]} data={[]} />
+          <DataTable 
+            columns={salesCols} 
+            data={salesReturns}
+            onView={(row) => row.status === 'pending' && approveReturn('sales', row.id)}
+            onDelete={(row) => setSalesReturns(salesReturns.filter(r => r.id !== row.id))}
+          />
         </TabsContent>
         <TabsContent value="purchase" className="mt-4">
-          <DataTable columns={[{key:"id",label:"Return #"},{key:"ref",label:"GRN #"},{key:"items",label:"Items"},{key:"amount",label:"Amount"},{key:"date",label:"Date"}]} data={[]} />
+          <DataTable 
+            columns={purchaseCols} 
+            data={purchaseReturns}
+            onView={(row) => row.status === 'pending' && approveReturn('purchase', row.id)}
+            onDelete={(row) => setPurchaseReturns(purchaseReturns.filter(r => r.id !== row.id))}
+          />
         </TabsContent>
       </Tabs>
+      
+      <EntityForm 
+        open={open} 
+        onOpenChange={setOpen} 
+        title={`New ${returnType === 'sales' ? 'Sales' : 'Purchase'} Return`} 
+        fields={salesFields} 
+        onSubmit={handleSubmit}
+        defaults={{}}
+      />
     </div>
   );
 }
 
 function Reports() {
+  const { t } = useTranslation();
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [dateRange, setDateRange] = useState({ from: '2026-02-01', to: '2026-02-04' });
+  const [reportData, setReportData] = useState(null);
+
+  const reports = [
+    { key: "sales", icon: Receipt, title: t('reports.salesReport'), desc: t('reports.salesReportDesc') },
+    { key: "profit", icon: BadgeDollarSign, title: t('reports.profitLoss'), desc: t('reports.profitLossDesc') },
+    { key: "inventory", icon: Package, title: t('reports.inventoryValuation'), desc: t('reports.inventoryValuationDesc') },
+    { key: "expiry", icon: CalendarClock, title: t('reports.expiryReport'), desc: t('reports.expiryReportDesc') },
+    { key: "purchase", icon: Truck, title: t('reports.purchaseReport'), desc: t('reports.purchaseReportDesc') },
+    { key: "tax", icon: FileText, title: t('reports.taxReport'), desc: t('reports.taxReportDesc') },
+  ];
+
+  const generateReport = (reportKey) => {
+    setSelectedReport(reportKey);
+    
+    // Generate sample report data based on type
+    switch (reportKey) {
+      case 'sales':
+        setReportData({
+          title: 'Sales Report',
+          summary: { totalSales: 124500, invoiceCount: 148, avgInvoice: 841, topProduct: 'Paracetamol 500mg' },
+          data: [
+            { date: '2026-02-01', invoices: 32, sales: 28500, cash: 18500, credit: 10000 },
+            { date: '2026-02-02', invoices: 38, sales: 31200, cash: 22200, credit: 9000 },
+            { date: '2026-02-03', invoices: 41, sales: 35800, cash: 25800, credit: 10000 },
+            { date: '2026-02-04', invoices: 37, sales: 29000, cash: 19000, credit: 10000 },
+          ]
+        });
+        break;
+      case 'expiry':
+        setReportData({
+          title: 'Expiry Report',
+          summary: { expired: 3, within30Days: 10, within90Days: 25, totalValue: 15600 },
+          data: demoProducts.map(p => ({
+            product: p.name,
+            batch: p.batch,
+            expiry: p.expiry,
+            stock: p.stock,
+            status: checkProductExpiry(p).status
+          }))
+        });
+        break;
+      case 'inventory':
+        setReportData({
+          title: 'Inventory Valuation',
+          summary: { totalItems: demoProducts.length, totalValue: demoProducts.reduce((s, p) => s + p.stock * p.price, 0), lowStock: 2 },
+          data: demoProducts.map(p => ({
+            product: p.name,
+            sku: p.sku,
+            stock: p.stock,
+            costPrice: Math.round(p.price * 0.7),
+            salePrice: p.price,
+            value: p.stock * Math.round(p.price * 0.7)
+          }))
+        });
+        break;
+      default:
+        setReportData({
+          title: 'Report',
+          summary: {},
+          data: []
+        });
+    }
+  };
+
   return (
     <div className="p-4 space-y-4">
-      <SectionHeader icon={FileBarChart2} title="Reports" />
-      <div className="grid md:grid-cols-3 gap-3">
-        {[
-          {icon:FileText,title:"Sales Report",desc:"By day, product, customer"},
-          {icon:FileText,title:"Profit & Loss",desc:"Margins, discounts, tax"},
-          {icon:FileText,title:"Inventory Valuation",desc:"FIFO/Avg cost"},
-          {icon:CalendarClock,title:"Expiry Report",desc:"Expiring & expired"},
-          {icon:FileText,title:"Purchase Report",desc:"Supplier-wise"},
-          {icon:FileText,title:"Tax Report",desc:"VAT summary"},
-        ].map((r,i)=> (
-          <Card key={i} className="hover:shadow">
-            <CardHeader><CardTitle className="text-base flex items-center gap-2"><r.icon className="h-4 w-4"/>{r.title}</CardTitle></CardHeader>
-            <CardContent>
-              <div className="text-sm text-muted-foreground">{r.desc}</div>
-              <div className="flex justify-end mt-3"><Button variant="outline">View</Button></div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <SectionHeader icon={FileBarChart2} title={t('reports.title')} />
+      
+      {!selectedReport ? (
+        <div className="grid md:grid-cols-3 gap-3">
+          {reports.map((r) => (
+            <Card key={r.key} className="hover:shadow cursor-pointer" onClick={() => generateReport(r.key)}>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <r.icon className="h-4 w-4"/>{r.title}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm text-muted-foreground">{r.desc}</div>
+                <div className="flex justify-end mt-3">
+                  <Button variant="outline" onClick={() => generateReport(r.key)}>Generate</Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <Button variant="ghost" onClick={() => { setSelectedReport(null); setReportData(null); }}>
+              <X className="h-4 w-4 mr-2"/>Back to Reports
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => reportData && exportToCSV(reportData.data, selectedReport)}>
+                <FileSpreadsheet className="h-4 w-4 mr-2"/>Export CSV
+              </Button>
+              <Button variant="outline" onClick={() => reportData && exportToJSON(reportData.data, selectedReport)}>
+                <FileDown className="h-4 w-4 mr-2"/>Export JSON
+              </Button>
+              <Button onClick={() => window.print()}>
+                <Printer className="h-4 w-4 mr-2"/>Print
+              </Button>
+            </div>
+          </div>
+
+          {reportData && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>{reportData.title}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {Object.entries(reportData.summary).map(([key, value]) => (
+                      <div key={key} className="text-center p-3 bg-muted rounded-lg">
+                        <div className="text-sm text-muted-foreground capitalize">{key.replace(/([A-Z])/g, ' $1')}</div>
+                        <div className="text-xl font-bold">
+                          {typeof value === 'number' && key.includes('Value') || key.includes('Sales') || key.includes('Invoice')
+                            ? `${value.toLocaleString()} AFN` 
+                            : value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Details</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted">
+                        <tr>
+                          {reportData.data[0] && Object.keys(reportData.data[0]).map(key => (
+                            <th key={key} className="px-3 py-2 text-left capitalize">{key.replace(/([A-Z])/g, ' $1')}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportData.data.map((row, idx) => (
+                          <tr key={idx} className="border-t">
+                            {Object.entries(row).map(([key, value]) => (
+                              <td key={key} className="px-3 py-2">
+                                {key === 'status' ? (
+                                  <Badge variant={value === 'expired' ? 'destructive' : value === 'expiringSoon' ? 'secondary' : 'default'}>
+                                    {value}
+                                  </Badge>
+                                ) : typeof value === 'number' && (key.includes('sales') || key.includes('value') || key.includes('cost') || key.includes('price') || key.includes('cash') || key.includes('credit'))
+                                  ? `${value.toLocaleString()} AFN`
+                                  : value}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
