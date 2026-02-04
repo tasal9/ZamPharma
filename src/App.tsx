@@ -77,6 +77,15 @@ import {
   Loader2,
   User2,
   UserCog,
+  Moon,
+  Sun,
+  Barcode,
+  ClipboardCheck,
+  Hash,
+  Minus,
+  Calculator,
+  FileCheck,
+  PackageCheck,
 } from "lucide-react";
 import { useKV } from '@github/spark/hooks';
 
@@ -100,6 +109,23 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+
+// Dark Mode Hook
+function useDarkMode() {
+  const [isDark, setIsDark] = useKV('dark-mode', false);
+
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDark]);
+
+  const toggleDarkMode = () => setIsDark(!isDark);
+
+  return { isDark, setIsDark, toggleDarkMode };
+}
 
 // Language and RTL support hook
 function useLanguage() {
@@ -1183,6 +1209,7 @@ function Sidebar({ current, setCurrent, user, onLogout }: { current: string; set
 function Topbar({ user, onOpenCommand }: { user?: any; onOpenCommand?: () => void }) {
   const { t } = useTranslation();
   const { isRTL } = useLanguage();
+  const { isDark, toggleDarkMode } = useDarkMode();
   
   return (
     <div className="h-16 border-b flex items-center justify-between px-4 bg-background/95 backdrop-blur sticky top-0 z-30">
@@ -1200,6 +1227,17 @@ function Topbar({ user, onOpenCommand }: { user?: any; onOpenCommand?: () => voi
         </Button>
       </div>
       <div className="flex items-center gap-2">
+        {/* Dark Mode Toggle */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={toggleDarkMode}>
+                {isDark ? <Sun className="h-5 w-5"/> : <Moon className="h-5 w-5"/>}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{isDark ? 'Light Mode' : 'Dark Mode'}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
