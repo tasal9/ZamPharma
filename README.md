@@ -1,23 +1,52 @@
-# ✨ Welcome to Your Spark Template!
-You've just launched your brand-new Spark Template Codespace — everything’s fired up and ready for you to explore, build, and create with Spark!
+# ZamPharma - Pharmacy Management System
 
-This template is your blank canvas. It comes with a minimal setup to help you get started quickly with Spark development.
+A comprehensive pharmacy management system designed for healthcare businesses in Afghanistan, providing complete inventory, sales, and customer management capabilities.
 
-🚀 What's Inside?
-- A clean, minimal Spark environment
-- Pre-configured for local development
-- Ready to scale with your ideas
-  
-🧠 What Can You Do?
+## Features
 
-Right now, this is just a starting point — the perfect place to begin building and testing your Spark applications.
+- **Dashboard Overview**: Real-time KPI display, sales metrics, stock alerts, and system notifications.
+- **Point of Sale (POS)**: Barcode scanning, product search, cart management, payment processing, and receipt printing.
+- **Inventory Management**: Stock tracking, batch management, expiry monitoring, and automated reorder alerts.
+- **Product Catalog**: Product creation, editing, categorization, pricing, and supplier linking.
+- **Supplier Management**: Supplier profiles, contact management, payment tracking, and performance monitoring.
+- **Sales & Reporting**: Sales analysis, profit tracking, tax reporting, and inventory valuation.
+- **User Management & Security**: Role-based access control, audit logging, and session management.
 
-🧹 Just Exploring?
-No problem! If you were just checking things out and don’t need to keep this code:
+## Tech Stack
 
-- Simply delete your Spark.
-- Everything will be cleaned up — no traces left behind.
+- **Frontend Framework**: React 19, TypeScript, Vite
+- **Styling**: Tailwind CSS v4
+- **UI Components**: shadcn/ui (Radix UI primitives)
+- **Internationalization**: i18next (English, Persian/Farsi, Pashto)
+- **Icons**: Lucide React & Phosphor Icons
+- **Forms & Validation**: React Hook Form, Zod
+- **State Management**: React Query
 
-📄 License For Spark Template Resources 
+## Getting Started
 
-The Spark Template files and resources from GitHub are licensed under the terms of the MIT license, Copyright GitHub, Inc.
+### Prerequisites
+
+- Node.js (v20+ recommended)
+- npm or pnpm or yarn
+
+### Installation
+
+```bash
+npm install
+```
+
+### Start Development Server
+
+```bash
+npm run dev
+```
+
+### Building for Production
+
+```bash
+npm run build
+```
+
+## License
+
+This project is licensed under the MIT License.
